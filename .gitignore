@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Build / coverage
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs and debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS and editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+*.local
+
+# Vercel (if used locally)
+.vercel
+
+# Python (if used later)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
