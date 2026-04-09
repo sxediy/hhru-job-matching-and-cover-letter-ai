@@ -12,12 +12,7 @@ export function buildVacancySearchParams(payload: VacancySearchPayload): URLSear
   if (excludedText) p.set("excluded_text", excludedText);
 
   const fields = payload.searchFields?.length ? payload.searchFields : [...DEFAULT_SEARCH_FIELDS];
-  const allDefault =
-    fields.length === 3 &&
-    DEFAULT_SEARCH_FIELDS.every((f) => fields.includes(f as (typeof fields)[number]));
-  if (!allDefault) {
-    for (const f of fields) p.append("search_field", f);
-  }
+  for (const f of fields) p.append("search_field", f);
 
   for (const id of payload.areaIds ?? []) {
     if (id) p.append("area", id);
@@ -42,13 +37,16 @@ export function buildVacancySearchParams(payload: VacancySearchPayload): URLSear
     p.append("label", "with_salary");
   }
 
-  if (payload.salary != null && payload.currency) {
+  if (payload.salary != null && payload.currency_code) {
     p.set("salary", String(Math.trunc(payload.salary)));
-    p.set("currency", payload.currency);
+    // HH API `/vacancies` expects `currency`; `currency_code` is for hh.ru web search URL.
+    p.set("currency", payload.currency_code);
   }
 
   p.set("page", String(Math.max(0, payload.page ?? 0)));
   p.set("per_page", String(Math.min(100, Math.max(1, payload.perPage ?? 20))));
+  // Match hh.ru web query profile closer for comparable result sets.
+  p.set("enable_snippets", "false");
 
   return p;
 }

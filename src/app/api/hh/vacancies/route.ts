@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const salary = payload.salary;
   const hasSalary =
     salary != null && !Number.isNaN(Number(salary)) && String(salary).trim() !== "";
-  if (hasSalary && !payload.currency?.trim()) {
+  if (hasSalary && !payload.currency_code?.trim()) {
     return NextResponse.json(
       { error: "Укажите валюту для фильтра по зарплате" },
       { status: 400 },

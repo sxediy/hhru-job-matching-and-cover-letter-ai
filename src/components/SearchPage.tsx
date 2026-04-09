@@ -113,6 +113,98 @@ type SearchSnapshot = {
   currencyResolved: string;
 };
 
+type ParsedFilters = {
+  text: string;
+  excludedText: string;
+  searchFields: string[];
+  areaIds: Set<string>;
+  employmentForm: Set<string>;
+  experience: string;
+  workFormat: Set<string>;
+  labels: Set<string>;
+  withStatedSalary: boolean;
+  salaryAmount: string;
+  currency_code: string;
+};
+
+function toSortedUnique(values: Iterable<string>): string[] {
+  return [...new Set([...values].filter(Boolean))].sort((a, b) => a.localeCompare(b, "en"));
+}
+
+function parseFiltersFromParams(
+  params: URLSearchParams,
+  allowedEmploymentForm: Set<string>,
+  allowedWorkFormat: Set<string>,
+  allowedExperience: Set<string>,
+): ParsedFilters {
+  const allSearchFields = toSortedUnique(params.getAll("search_field"));
+  const searchFields =
+    allSearchFields.length === 0
+      ? [...DEFAULT_SEARCH_FIELDS]
+      : allSearchFields.filter((f) => DEFAULT_SEARCH_FIELDS.includes(f as (typeof DEFAULT_SEARCH_FIELDS)[number]));
+  const effectiveSearchFields = searchFields.length > 0 ? searchFields : [...DEFAULT_SEARCH_FIELDS];
+
+  const labelValues = params.getAll("label");
+  const withStatedSalary = labelValues.includes("with_salary");
+  const labels = new Set(
+    labelValues.filter((id) => (VACANCY_LABEL_IDS as readonly string[]).includes(id)),
+  );
+
+  const experience = params.get("experience")?.trim() ?? "";
+  const normalizedExperience = allowedExperience.has(experience) ? experience : "";
+
+  const salaryRaw = params.get("salary")?.trim() ?? "";
+  const salaryNum = Number(salaryRaw);
+  const salaryAmount =
+    salaryRaw !== "" && Number.isFinite(salaryNum) && salaryNum > 0 ? String(Math.trunc(salaryNum)) : "";
+
+  return {
+    text: params.get("text")?.trim() ?? "",
+    excludedText: params.get("excluded_text")?.trim() ?? "",
+    searchFields: effectiveSearchFields,
+    areaIds: new Set(toSortedUnique(params.getAll("area"))),
+    employmentForm: new Set(
+      toSortedUnique(params.getAll("employment_form")).filter((id) => allowedEmploymentForm.has(id)),
+    ),
+    experience: normalizedExperience,
+    workFormat: new Set(
+      toSortedUnique(params.getAll("work_format")).filter((id) => allowedWorkFormat.has(id)),
+    ),
+    labels,
+    withStatedSalary,
+    salaryAmount,
+    currency_code: params.get("currency_code")?.trim().toUpperCase() ?? "",
+  };
+}
+
+function buildParamsFromSnapshot(snapshot: SearchSnapshot): URLSearchParams {
+  const params = new URLSearchParams();
+  if (snapshot.text.trim()) params.set("text", snapshot.text.trim());
+  if (snapshot.excludedText.trim()) params.set("excluded_text", snapshot.excludedText.trim());
+
+  const allDefault =
+    snapshot.searchFields.length === 3 &&
+    DEFAULT_SEARCH_FIELDS.every((f) => snapshot.searchFields.includes(f));
+  if (!allDefault) {
+    for (const field of toSortedUnique(snapshot.searchFields)) {
+      params.append("search_field", field);
+    }
+  }
+
+  for (const areaId of toSortedUnique(snapshot.selectedAreaIds)) params.append("area", areaId);
+  for (const id of toSortedUnique(snapshot.employmentForm)) params.append("employment_form", id);
+  if (snapshot.experience.trim()) params.set("experience", snapshot.experience.trim());
+  for (const id of toSortedUnique(snapshot.workFormat)) params.append("work_format", id);
+  for (const id of toSortedUnique(snapshot.labels)) params.append("label", id);
+  if (snapshot.withStatedSalary) params.append("label", "with_salary");
+
+  if (snapshot.salaryAmount && snapshot.currencyResolved) {
+    params.set("salary", snapshot.salaryAmount);
+    params.set("currency_code", snapshot.currencyResolved);
+  }
+  return params;
+}
+
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
   const [areasBundle, setAreasBundle] = useState<AreasBundle | null>(null);
@@ -136,6 +228,10 @@ export function SearchPage() {
   const [salaryAmount, setSalaryAmount] = useState("");
   const [currency, setCurrency] = useState("");
   const [withStatedSalary, setWithStatedSalary] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [copyDone, setCopyDone] = useState(false);
 
   const [page, setPage] = useState(0);
   const [items, setItems] = useState<VacancyItem[]>([]);
@@ -160,6 +256,8 @@ export function SearchPage() {
   const searchRequestIdRef = useRef(0);
   const countryScrollRef = useRef<HTMLDivElement>(null);
   const ruScrollRef = useRef<HTMLDivElement>(null);
+  const initializedFromUrlRef = useRef(false);
+  const copyResetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -372,6 +470,18 @@ export function SearchPage() {
   }, [countriesEn, areaQuery]);
 
   const experienceOptions = dicts?.experience ?? [];
+  const allowedEmploymentForm = useMemo(
+    () => new Set((dicts?.vacancy_search_employment_form ?? []).map((v) => v.id)),
+    [dicts?.vacancy_search_employment_form],
+  );
+  const allowedWorkFormat = useMemo(
+    () => new Set((dicts?.work_format ?? []).map((v) => v.id)),
+    [dicts?.work_format],
+  );
+  const allowedExperience = useMemo(
+    () => new Set((dicts?.experience ?? []).map((v) => v.id)),
+    [dicts?.experience],
+  );
 
   const employmentSelectOptions = useMemo(() => {
     const list = dicts?.vacancy_search_employment_form ?? [];
@@ -455,7 +565,7 @@ export function SearchPage() {
         labels: [...s.labels],
         withStatedSalary: s.withStatedSalary || undefined,
         salary: hasSalary ? salaryNum : undefined,
-        currency: hasSalary ? s.currencyResolved : undefined,
+        currency_code: hasSalary ? s.currencyResolved : undefined,
         page: nextPage,
         perPage: 20,
       };
@@ -493,6 +603,7 @@ export function SearchPage() {
 
   useEffect(() => {
     if (!dicts || !areasBundle) return;
+    if (!initializedFromUrlRef.current && window.location.search) return;
     void runSearch(0, false);
   }, [
     dicts,
@@ -507,6 +618,197 @@ export function SearchPage() {
     labelsKey,
     withStatedSalary,
     currencyResolved,
+    runSearch,
+  ]);
+
+  useEffect(() => {
+    if (!dicts || !areasBundle || initializedFromUrlRef.current) return;
+    const initialParams = new URLSearchParams(window.location.search);
+    const hadInitialQuery = initialParams.toString().length > 0;
+    const parsed = parseFiltersFromParams(
+      initialParams,
+      allowedEmploymentForm,
+      allowedWorkFormat,
+      allowedExperience,
+    );
+    initializedFromUrlRef.current = true;
+    setText(parsed.text);
+    setExcludedText(parsed.excludedText);
+    setSfName(parsed.searchFields.includes("name"));
+    setSfCompany(parsed.searchFields.includes("company_name"));
+    setSfDesc(parsed.searchFields.includes("description"));
+    setSelectedAreaIds(parsed.areaIds);
+    const hasRussiaScope =
+      parsed.areaIds.has("113") || [...parsed.areaIds].some((id) => ruSubjectIds.has(id));
+    setRussiaChipOn(hasRussiaScope);
+    setRussiaAll(parsed.areaIds.has("113"));
+    setEmploymentForm(parsed.employmentForm);
+    setExperience(parsed.experience);
+    setWorkFormat(parsed.workFormat);
+    setLabels(parsed.labels);
+    setWithStatedSalary(parsed.withStatedSalary);
+    setSalaryAmount(parsed.salaryAmount);
+    setCurrency(parsed.currency_code);
+    const overrideSnapshot: Partial<SearchSnapshot> = {
+      text: parsed.text,
+      excludedText: parsed.excludedText,
+      searchFields: parsed.searchFields,
+      selectedAreaIds: parsed.areaIds,
+      employmentForm: parsed.employmentForm,
+      experience: parsed.experience,
+      workFormat: parsed.workFormat,
+      labels: parsed.labels,
+      withStatedSalary: parsed.withStatedSalary,
+      salaryAmount: parsed.salaryAmount,
+      currencyResolved: parsed.currency_code,
+    };
+    if (hadInitialQuery) {
+      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+    }
+  }, [
+    allowedEmploymentForm,
+    allowedExperience,
+    allowedWorkFormat,
+    areasBundle,
+    dicts,
+    ruSubjectIds,
+    runSearch,
+  ]);
+
+  useEffect(() => {
+    if (!initializedFromUrlRef.current) return;
+    const params = buildParamsFromSnapshot(snapshotRef.current);
+    const next = params.toString();
+    const current = window.location.search.startsWith("?")
+      ? window.location.search.slice(1)
+      : window.location.search;
+    if (next !== current) {
+      const hash = window.location.hash || "";
+      const url = next ? `${window.location.pathname}?${next}${hash}` : `${window.location.pathname}${hash}`;
+      window.history.replaceState(null, "", url);
+    }
+  }, [
+    text,
+    excludedText,
+    sfName,
+    sfCompany,
+    sfDesc,
+    selectedAreaIdsKey,
+    employmentFormKey,
+    experience,
+    workFormatKey,
+    labelsKey,
+    withStatedSalary,
+    salaryAmount,
+    currencyResolved,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current != null) window.clearTimeout(copyResetTimerRef.current);
+    },
+    [],
+  );
+
+  const openInHeadHunter = useCallback(() => {
+    const params = buildParamsFromSnapshot(snapshotRef.current);
+    params.delete("page");
+    params.delete("per_page");
+    const url = `https://hh.ru/search/vacancy?${params.toString()}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const copySearchLink = useCallback(async () => {
+    const href = window.location.href;
+    const markCopied = () => {
+      setCopyDone(true);
+      if (copyResetTimerRef.current != null) window.clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = window.setTimeout(() => setCopyDone(false), 1800);
+    };
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(href);
+        markCopied();
+        return;
+      }
+      throw new Error("Clipboard API unavailable");
+    } catch {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = href;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.top = "-9999px";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (!copied) throw new Error("execCommand copy failed");
+        markCopied();
+      } catch {
+        setSearchError("Unable to copy link");
+      }
+    }
+  }, []);
+
+  const applyImportedUrl = useCallback(() => {
+    const raw = importUrl.trim();
+    if (!raw) {
+      setImportError("Paste a HeadHunter URL");
+      return;
+    }
+    try {
+      const parsedUrl = new URL(raw);
+      const parsed = parseFiltersFromParams(
+        parsedUrl.searchParams,
+        allowedEmploymentForm,
+        allowedWorkFormat,
+        allowedExperience,
+      );
+      setText(parsed.text);
+      setExcludedText(parsed.excludedText);
+      setSfName(parsed.searchFields.includes("name"));
+      setSfCompany(parsed.searchFields.includes("company_name"));
+      setSfDesc(parsed.searchFields.includes("description"));
+      setSelectedAreaIds(parsed.areaIds);
+      const hasRussiaScope =
+        parsed.areaIds.has("113") || [...parsed.areaIds].some((id) => ruSubjectIds.has(id));
+      setRussiaChipOn(hasRussiaScope);
+      setRussiaAll(parsed.areaIds.has("113"));
+      setEmploymentForm(parsed.employmentForm);
+      setExperience(parsed.experience);
+      setWorkFormat(parsed.workFormat);
+      setLabels(parsed.labels);
+      setWithStatedSalary(parsed.withStatedSalary);
+      setSalaryAmount(parsed.salaryAmount);
+      setCurrency(parsed.currency_code);
+      setImportError(null);
+      setIsImportOpen(false);
+      const overrideSnapshot: Partial<SearchSnapshot> = {
+        text: parsed.text,
+        excludedText: parsed.excludedText,
+        searchFields: parsed.searchFields,
+        selectedAreaIds: parsed.areaIds,
+        employmentForm: parsed.employmentForm,
+        experience: parsed.experience,
+        workFormat: parsed.workFormat,
+        labels: parsed.labels,
+        withStatedSalary: parsed.withStatedSalary,
+        salaryAmount: parsed.salaryAmount,
+        currencyResolved: parsed.currency_code,
+      };
+      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+    } catch {
+      setImportError("Invalid URL");
+    }
+  }, [
+    allowedEmploymentForm,
+    allowedExperience,
+    allowedWorkFormat,
+    importUrl,
+    ruSubjectIds,
     runSearch,
   ]);
 
@@ -761,12 +1063,62 @@ export function SearchPage() {
             </label>
           ))}
           </div>
+
+          <div className="filters-actions-bar">
+            <button type="button" className="secondary filters-actions-bar__btn" onClick={() => setIsImportOpen(true)}>
+              Import from HeadHunter
+            </button>
+            <button type="button" className="secondary filters-actions-bar__btn" onClick={openInHeadHunter}>
+              Open in HeadHunter
+            </button>
+            <button
+              type="button"
+              className="secondary filters-actions-bar__copy"
+              aria-label="Copy search link"
+              title={copyDone ? "Copied" : "Copy search link"}
+              onClick={() => void copySearchLink()}
+            >
+              {copyDone ? "✓" : "🔗"}
+            </button>
+          </div>
         </div>
 
         <div className="filters-after">
           {searchError ? <p className="error">{searchError}</p> : null}
         </div>
       </section>
+      {isImportOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsImportOpen(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Import from HeadHunter"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>Import from HeadHunter</h2>
+            <label>
+              <span>HeadHunter URL</span>
+              <textarea
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+                placeholder="https://hh.ru/search/vacancy?..."
+                rows={3}
+                autoFocus
+              />
+            </label>
+            {importError ? <p className="error small">{importError}</p> : null}
+            <div className="modal__actions">
+              <button type="button" className="secondary" onClick={() => setIsImportOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="primary" onClick={applyImportedUrl}>
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="panel results">
         {found != null ? (

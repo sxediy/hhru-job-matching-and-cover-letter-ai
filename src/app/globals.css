@@ -194,6 +194,33 @@ code {
   margin-top: 0;
 }
 
+.filters-actions-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+.filters-actions-bar__btn,
+.filters-actions-bar__copy {
+  margin-top: 0 !important;
+  height: 2.45rem;
+}
+
+.filters-actions-bar__copy {
+  min-width: 2.45rem;
+  padding-inline: 0.65rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .filters-actions-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .field > span,
 .field > label > span,
 .field legend {
@@ -221,6 +248,17 @@ select {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 85%, var(--bg));
   color: var(--text);
+}
+
+textarea {
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 85%, var(--bg));
+  color: var(--text);
+  resize: vertical;
+  font: inherit;
 }
 
 fieldset {
@@ -495,6 +533,38 @@ button.secondary:disabled {
 
 .error {
   color: var(--error);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: color-mix(in srgb, #000 45%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  width: min(680px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 14px 48px color-mix(in srgb, var(--bg) 55%, #000);
+}
+
+.modal h2 {
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
 }
 
 .vacancy-list {

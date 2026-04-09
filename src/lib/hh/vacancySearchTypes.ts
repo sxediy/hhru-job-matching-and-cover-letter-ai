@@ -12,7 +12,7 @@ export type VacancySearchPayload = {
   /** hh.ru `label=with_salary` — only vacancies where employer stated income */
   withStatedSalary?: boolean;
   salary?: number | null;
-  currency?: string;
+  currency_code?: string;
   page?: number;
   perPage?: number;
 };
