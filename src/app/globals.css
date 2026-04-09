@@ -64,7 +64,7 @@ code {
 
 @media (min-width: 960px) {
   .layout {
-    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
     align-items: start;
   }
 }
@@ -131,15 +131,9 @@ code {
   min-width: 0;
 }
 
-.panel.filters .filters-stack__presets-inner {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--filters-stack-gap) / 2);
-  min-width: 0;
-}
-
 .panel.filters .filters-stack__presets-summary {
   margin: 0;
+  font-weight: 600;
 }
 
 .field--text-search-block .text-search-block__exclude {
@@ -321,7 +315,7 @@ fieldset legend {
 }
 
 .ru-scroll {
-  max-height: 200px;
+  max-height: 9.6rem;
 }
 
 .country-scroll {

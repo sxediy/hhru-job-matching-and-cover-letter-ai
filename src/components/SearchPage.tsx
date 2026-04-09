@@ -626,31 +626,17 @@ export function SearchPage() {
 
           <fieldset className="field">
             <legend>Presets</legend>
-            <div className="filters-stack__presets-inner">
-              <div className="chips">
-                {PRESET_CHIP_ORDER.map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
-                    onClick={() => togglePresetChip(key)}
-                  >
-                    {key === "russia" ? "Russia" : PRESET_LABELS[key]}
-                  </button>
-                ))}
-              </div>
-              <p className="small muted filters-stack__presets-summary">
-                {selectedRegionsSummary.count === 0 ? (
-                  <>Selected regions: All</>
-                ) : (
-                  <>
-                    Selected regions: {selectedRegionsSummary.count}
-                    {selectedRegionsSummary.count <= 12
-                      ? ` (${selectedRegionsSummary.labels.join(", ")})`
-                      : ""}
-                  </>
-                )}
-              </p>
+            <div className="chips">
+              {PRESET_CHIP_ORDER.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
+                  onClick={() => togglePresetChip(key)}
+                >
+                  {key === "russia" ? "Russia" : PRESET_LABELS[key]}
+                </button>
+              ))}
             </div>
           </fieldset>
 
@@ -708,6 +694,19 @@ export function SearchPage() {
             </div>
           ) : null}
           </div>
+
+          <p className="small muted filters-stack__presets-summary">
+            {selectedRegionsSummary.count === 0 ? (
+              <>Selected regions: All</>
+            ) : (
+              <>
+                Selected regions: {selectedRegionsSummary.count}
+                {selectedRegionsSummary.count <= 12
+                  ? ` (${selectedRegionsSummary.labels.join(", ")})`
+                  : ""}
+              </>
+            )}
+          </p>
 
           <div className="filters-stack__job-fields">
             <div className="field">
