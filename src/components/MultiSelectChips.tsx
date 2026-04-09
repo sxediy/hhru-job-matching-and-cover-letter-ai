@@ -109,7 +109,9 @@ export function MultiSelectChips({
         ) : null}
         <div className="multi-select-chips__inner">
           {selected.size === 0 ? (
-            <span className="multi-select-chips__placeholder">{placeholder}</span>
+            <span className="multi-select-chips__placeholder" title={placeholder}>
+              {placeholder}
+            </span>
           ) : (
             [...selected].map((id) => (
               <span key={id} className="multi-select-chips__pill" role="presentation">

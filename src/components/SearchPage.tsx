@@ -25,7 +25,7 @@ type AreasBundle = {
 };
 
 type PresetJsonKey = keyof typeof areaPresetIds;
-type PresetChipKey = PresetJsonKey | "russia";
+type PresetChipKey = PresetJsonKey | "russia" | "otherRegions";
 
 const PRESET_LABELS: Record<PresetJsonKey, string> = {
   eu: "EU",
@@ -47,6 +47,7 @@ const PRESET_LABELS: Record<PresetJsonKey, string> = {
 const PRESET_CHIP_ORDER: PresetChipKey[] = [
   ...(Object.keys(areaPresetIds) as PresetJsonKey[]),
   "russia",
+  "otherRegions",
 ];
 
 const VACANCY_LABEL_IDS = [
@@ -90,13 +91,6 @@ const WORK_FORMAT_LABELS_EN: Record<string, string> = {
   REMOTE: "Remote",
   HYBRID: "Hybrid",
   FIELD_WORK: "Field-based",
-};
-
-/** Country-root area ids (e.g. Caucasus preset) often missing from flat «other regions» list */
-const PRESET_ROOT_AREA_LABEL_EN: Record<string, string> = {
-  "9": "Azerbaijan",
-  "28": "Georgia",
-  "13": "Armenia",
 };
 
 type SearchSnapshot = {
@@ -183,13 +177,8 @@ function buildParamsFromSnapshot(snapshot: SearchSnapshot): URLSearchParams {
   if (snapshot.text.trim()) params.set("text", snapshot.text.trim());
   if (snapshot.excludedText.trim()) params.set("excluded_text", snapshot.excludedText.trim());
 
-  const allDefault =
-    snapshot.searchFields.length === 3 &&
-    DEFAULT_SEARCH_FIELDS.every((f) => snapshot.searchFields.includes(f));
-  if (!allDefault) {
-    for (const field of toSortedUnique(snapshot.searchFields)) {
-      params.append("search_field", field);
-    }
+  for (const field of toSortedUnique(snapshot.searchFields)) {
+    params.append("search_field", field);
   }
 
   for (const areaId of toSortedUnique(snapshot.selectedAreaIds)) params.append("area", areaId);
@@ -206,6 +195,47 @@ function buildParamsFromSnapshot(snapshot: SearchSnapshot): URLSearchParams {
   return params;
 }
 
+function FiltersBarIconImport() {
+  return (
+    <svg
+      className="filters-actions-bar__btn-svg filters-actions-bar__btn-svg--stroke"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v12" />
+      <path d="M7 10 12 15 17 10" />
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    </svg>
+  );
+}
+
+/** Compact hh.ru-style mark (red tile + “hh”) for the “Open in HH” action */
+function FiltersBarIconHh() {
+  return (
+    <svg className="filters-actions-bar__btn-svg" viewBox="0 0 32 32" width={18} height={18} aria-hidden>
+      <rect width="32" height="32" rx="7" fill="#d6001c" />
+      <text
+        x="16"
+        y="21"
+        textAnchor="middle"
+        fill="#ffffff"
+        fontWeight="700"
+        fontSize="13"
+        fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif"
+      >
+        hh
+      </text>
+    </svg>
+  );
+}
+
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
   const [areasBundle, setAreasBundle] = useState<AreasBundle | null>(null);
@@ -219,7 +249,8 @@ export function SearchPage() {
 
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [russiaAll, setRussiaAll] = useState(false);
-  const [russiaChipOn, setRussiaChipOn] = useState(false);
+  const [countryListOpen, setCountryListOpen] = useState(false);
+  const [russiaListOpen, setRussiaListOpen] = useState(false);
   const [areaQuery, setAreaQuery] = useState("");
 
   const [employmentForm, setEmploymentForm] = useState<Set<string>>(new Set());
@@ -288,6 +319,7 @@ export function SearchPage() {
   const countriesEn = useMemo(() => {
     if (!areasBundle?.otherRegions?.areas) return [];
     return [...areasBundle.otherRegions.areas]
+      .filter((c) => c.id !== "1001")
       .map((c) => ({ id: c.id, nameEn: countryNameRuToEn(c.name) }))
       .sort((a, b) => a.nameEn.localeCompare(b.nameEn, "en"));
   }, [areasBundle]);
@@ -299,55 +331,23 @@ export function SearchPage() {
 
   const ruSubjectIds = useMemo(() => new Set(ruSubjects.map((r) => r.id)), [ruSubjects]);
 
-  const areaIdToLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of countriesEn) m.set(c.id, c.nameEn);
-    for (const r of ruSubjects) m.set(r.id, r.name);
-    m.set("113", "All Russia");
-    for (const [id, label] of Object.entries(PRESET_ROOT_AREA_LABEL_EN)) {
-      m.set(id, label);
-    }
-    return m;
-  }, [countriesEn, ruSubjects]);
-
-  const selectedRegionsSummary = useMemo(() => {
-    const labels = [...selectedAreaIds].map((id) => areaIdToLabel.get(id) ?? id);
-    return { count: labels.length, labels };
-  }, [selectedAreaIds, areaIdToLabel]);
-
   const searchFields = useMemo(() => {
     const next: string[] = [];
     if (sfName) next.push("name");
     if (sfCompany) next.push("company_name");
     if (sfDesc) next.push("description");
-    if (next.length === 0) return [...DEFAULT_SEARCH_FIELDS];
     return next;
-  }, [sfName, sfCompany, sfDesc]);
-
-  useEffect(() => {
-    if (sfName || sfCompany || sfDesc) return;
-    setSfName(true);
-    setSfCompany(true);
-    setSfDesc(true);
   }, [sfName, sfCompany, sfDesc]);
 
   const togglePreset = useCallback((key: keyof typeof areaPresetIds) => {
     const ids = areaPresetIds[key];
-    let dropAllRussia = false;
     setSelectedAreaIds((prev) => {
       const next = new Set(prev);
       const allOn = ids.every((id) => next.has(id));
       if (allOn) for (const id of ids) next.delete(id);
-      else {
-        for (const id of ids) next.add(id);
-        if (prev.has("113")) {
-          next.delete("113");
-          dropAllRussia = true;
-        }
-      }
+      else for (const id of ids) next.add(id);
       return next;
     });
-    if (dropAllRussia) setRussiaAll(false);
   }, []);
 
   const presetActive = useCallback(
@@ -367,27 +367,60 @@ export function SearchPage() {
     [selectedAreaIds, presetActive],
   );
 
-  const toggleRussiaChip = useCallback(() => {
-    setRussiaChipOn((wasOn) => {
-      if (wasOn) {
-        setSelectedAreaIds((prev) => {
-          const next = new Set(prev);
-          next.delete("113");
-          for (const r of ruSubjects) next.delete(r.id);
-          return next;
-        });
-        setRussiaAll(false);
-      } else {
-        setRussiaAll(true);
-      }
-      return !wasOn;
+  const russiaPresetActive = useCallback(() => {
+    if (selectedAreaIds.has("113")) return true;
+    if (ruSubjects.length === 0) return false;
+    return ruSubjects.every((r) => selectedAreaIds.has(r.id));
+  }, [selectedAreaIds, ruSubjects]);
+
+  const russiaPresetPartial = useCallback(() => {
+    if (russiaPresetActive()) return false;
+    return ruSubjects.some((r) => selectedAreaIds.has(r.id));
+  }, [selectedAreaIds, ruSubjects, russiaPresetActive]);
+
+  /** Чекбокс «Вся Россия»: 113 + снять субъекты. Зарубежные area не трогаем. */
+  const applyAllRussiaSelection = useCallback(() => {
+    setSelectedAreaIds((prev) => {
+      const next = new Set(prev);
+      for (const r of ruSubjects) next.delete(r.id);
+      next.add("113");
+      return next;
     });
+    setRussiaAll(true);
   }, [ruSubjects]);
+
+  /** Чип Russia: как у пресетов — полное включение / полное выключение (113 и все субъекты РФ). */
+  const toggleRussiaChip = useCallback(() => {
+    const prev = snapshotRef.current.selectedAreaIds;
+    const active =
+      prev.has("113") ||
+      (ruSubjects.length > 0 && ruSubjects.every((r) => prev.has(r.id)));
+    if (active) {
+      setSelectedAreaIds((p) => {
+        const next = new Set(p);
+        next.delete("113");
+        for (const r of ruSubjects) next.delete(r.id);
+        return next;
+      });
+      setRussiaAll(false);
+    } else {
+      applyAllRussiaSelection();
+    }
+  }, [ruSubjects, applyAllRussiaSelection]);
 
   const togglePresetChip = useCallback(
     (key: PresetChipKey) => {
       if (key === "russia") {
         toggleRussiaChip();
+        return;
+      }
+      if (key === "otherRegions") {
+        setSelectedAreaIds((prev) => {
+          const next = new Set(prev);
+          if (next.has("1001")) next.delete("1001");
+          else next.add("1001");
+          return next;
+        });
         return;
       }
       togglePreset(key);
@@ -397,18 +430,20 @@ export function SearchPage() {
 
   const chipPresetActive = useCallback(
     (key: PresetChipKey) => {
-      if (key === "russia") return russiaChipOn;
+      if (key === "russia") return russiaPresetActive();
+      if (key === "otherRegions") return selectedAreaIds.has("1001");
       return presetActive(key);
     },
-    [presetActive, russiaChipOn],
+    [presetActive, russiaPresetActive, selectedAreaIds],
   );
 
   const chipPresetPartial = useCallback(
     (key: PresetChipKey) => {
-      if (key === "russia") return false;
+      if (key === "russia") return russiaPresetPartial();
+      if (key === "otherRegions") return false;
       return presetPartial(key);
     },
-    [presetPartial],
+    [presetPartial, russiaPresetPartial],
   );
 
   const toggleAreaId = useCallback(
@@ -421,13 +456,9 @@ export function SearchPage() {
           return next;
         }
         next.add(id);
-        if (id !== "113") {
-          if (prev.has("113")) {
-            next.delete("113");
-            clearRussiaAll = true;
-          } else if (ruSubjectIds.has(id)) {
-            clearRussiaAll = true;
-          }
+        if (ruSubjectIds.has(id)) {
+          if (prev.has("113")) next.delete("113");
+          clearRussiaAll = true;
         }
         return next;
       });
@@ -435,17 +466,6 @@ export function SearchPage() {
     },
     [ruSubjectIds],
   );
-
-  /** Apply 113 + drop RU subjects. Used from the checkbox so re-check works even when `setRussiaAll(true)` bails out (russiaAll already true). */
-  const applyAllRussiaSelection = useCallback(() => {
-    setSelectedAreaIds((prev) => {
-      const next = new Set(prev);
-      for (const r of ruSubjects) next.delete(r.id);
-      next.add("113");
-      return next;
-    });
-    setRussiaAll(true);
-  }, [ruSubjects]);
 
   useEffect(() => {
     if (russiaAll) {
@@ -562,8 +582,9 @@ export function SearchPage() {
         text: s.text,
         excludedText: excluded || undefined,
         searchFields:
-          s.searchFields.length === 3 &&
-          DEFAULT_SEARCH_FIELDS.every((f) => s.searchFields.includes(f))
+          s.searchFields.length === 0 ||
+          (s.searchFields.length === 3 &&
+            DEFAULT_SEARCH_FIELDS.every((f) => s.searchFields.includes(f)))
             ? undefined
             : s.searchFields,
         areaIds,
@@ -646,9 +667,6 @@ export function SearchPage() {
     setSfCompany(parsed.searchFields.includes("company_name"));
     setSfDesc(parsed.searchFields.includes("description"));
     setSelectedAreaIds(parsed.areaIds);
-    const hasRussiaScope =
-      parsed.areaIds.has("113") || [...parsed.areaIds].some((id) => ruSubjectIds.has(id));
-    setRussiaChipOn(hasRussiaScope);
     setRussiaAll(parsed.areaIds.has("113"));
     setEmploymentForm(parsed.employmentForm);
     setExperience(parsed.experience);
@@ -764,7 +782,7 @@ export function SearchPage() {
   const applyImportedUrl = useCallback(() => {
     const raw = importUrl.trim();
     if (!raw) {
-      setImportError("Paste a HeadHunter URL");
+      setImportError("Paste an HH URL");
       return;
     }
     try {
@@ -781,9 +799,6 @@ export function SearchPage() {
       setSfCompany(parsed.searchFields.includes("company_name"));
       setSfDesc(parsed.searchFields.includes("description"));
       setSelectedAreaIds(parsed.areaIds);
-      const hasRussiaScope =
-        parsed.areaIds.has("113") || [...parsed.areaIds].some((id) => ruSubjectIds.has(id));
-      setRussiaChipOn(hasRussiaScope);
       setRussiaAll(parsed.areaIds.has("113"));
       setEmploymentForm(parsed.employmentForm);
       setExperience(parsed.experience);
@@ -839,12 +854,12 @@ export function SearchPage() {
     const countryEl = countryScrollRef.current;
     if (countryEl) cleanups.push(redirectWheelUnlessFieldsetFocused(countryEl));
     const ruEl = ruScrollRef.current;
-    if (ruEl && russiaChipOn) cleanups.push(redirectWheelUnlessFieldsetFocused(ruEl));
+    if (ruEl && russiaListOpen) cleanups.push(redirectWheelUnlessFieldsetFocused(ruEl));
 
     return () => {
       for (const c of cleanups) c();
     };
-  }, [dicts, areasBundle, russiaChipOn]);
+  }, [dicts, areasBundle, russiaListOpen]);
 
   if (loadError) {
     return (
@@ -869,7 +884,7 @@ export function SearchPage() {
         <div className="filters-stack">
           <div className="field field--text-search-block">
             <label>
-              <span>Text</span>
+              <span>Keywords</span>
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -877,7 +892,7 @@ export function SearchPage() {
                   const v = e.currentTarget.value;
                   queueMicrotask(() => void runSearch(0, false, { text: v }));
                 }}
-                placeholder="Keywords"
+                placeholder="e.g. React, Developer"
               />
             </label>
             <div className="search-fields-inline">
@@ -921,21 +936,21 @@ export function SearchPage() {
                 onCurrencyChange={setCurrency}
                 currencies={currencies}
                 label="Salary"
-                placeholder="Optional"
+                placeholder="per month"
               />
             </div>
-            <label className="check-row salary-stated-row">
+            <label className="check-row check-row--compact salary-stated-row">
               <input
                 type="checkbox"
                 checked={withStatedSalary}
                 onChange={(e) => setWithStatedSalary(e.target.checked)}
-              />{" "}
-              Salary specified
+              />
+              <span>Salary specified</span>
             </label>
           </div>
 
           <fieldset className="field">
-            <legend>Presets</legend>
+            <legend>Countries and regions</legend>
             <div className="chips">
               {PRESET_CHIP_ORDER.map((key) => (
                 <button
@@ -944,110 +959,184 @@ export function SearchPage() {
                   className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
                   onClick={() => togglePresetChip(key)}
                 >
-                  {key === "russia" ? "Russia" : PRESET_LABELS[key]}
+                  {key === "russia"
+                    ? "Russia"
+                    : key === "otherRegions"
+                      ? "Other regions"
+                      : PRESET_LABELS[key]}
                 </button>
               ))}
             </div>
           </fieldset>
 
-          <div className={`regions-split${russiaChipOn ? " regions-split--with-russia" : ""}`}>
+          <div className="regions-split regions-split--with-russia">
           <div className="regions-countries">
             <fieldset className="field">
-              <legend>All country</legend>
-              <input
-                value={areaQuery}
-                onChange={(e) => setAreaQuery(e.target.value)}
-                placeholder="Search country…"
-              />
-              <div className="country-scroll" ref={countryScrollRef}>
-                {filteredCountries.map((c) => (
-                  <label key={c.id} className="check-row">
+              <button
+                type="button"
+                className="collapse-toggle"
+                onClick={() => {
+                  setCountryListOpen((wasOpen) => {
+                    if (wasOpen) return false;
+                    setRussiaListOpen(false);
+                    return true;
+                  });
+                }}
+                aria-expanded={countryListOpen}
+                aria-controls="country-scroll"
+              >
+                All countries{" "}
+                <span className="collapse-toggle__caret" aria-hidden>
+                  {countryListOpen ? "▾" : "▸"}
+                </span>
+              </button>
+              {countryListOpen ? (
+                <>
+                  <div className="country-search-wrap">
                     <input
-                      type="checkbox"
-                      checked={selectedAreaIds.has(c.id)}
-                      onChange={() => toggleAreaId(c.id)}
-                    />{" "}
-                    {c.nameEn}
-                  </label>
-                ))}
-              </div>
+                      className="country-search-wrap__input"
+                      value={areaQuery}
+                      onChange={(e) => setAreaQuery(e.target.value)}
+                      placeholder="Search country…"
+                      aria-label="Search country"
+                    />
+                    {areaQuery.trim() ? (
+                      <button
+                        type="button"
+                        className="country-search-wrap__clear"
+                        aria-label="Clear country search"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setAreaQuery("")}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+                  <div id="country-scroll" className="country-scroll" ref={countryScrollRef}>
+                    {filteredCountries.map((c) => (
+                      <label key={c.id} className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={selectedAreaIds.has(c.id)}
+                          onChange={() => toggleAreaId(c.id)}
+                        />{" "}
+                        {c.nameEn}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </fieldset>
           </div>
-          {russiaChipOn ? (
-            <div className="regions-russia">
-              <fieldset className="field">
-                <legend>Россия</legend>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedAreaIds.has("113")}
-                    onChange={(e) => {
-                      if (e.target.checked) applyAllRussiaSelection();
-                      else setRussiaAll(false);
-                    }}
-                  />{" "}
-                  Вся Россия (113)
-                </label>
-                <div className="ru-scroll" ref={ruScrollRef}>
-                  {ruSubjects.map((r) => (
-                    <label key={r.id} className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={selectedAreaIds.has(r.id)}
-                        onChange={() => toggleAreaId(r.id)}
-                      />{" "}
-                      {r.name}
-                    </label>
-                  ))}
+          <div className="regions-russia">
+            <fieldset className="field">
+              <button
+                type="button"
+                className="collapse-toggle"
+                onClick={() => {
+                  setRussiaListOpen((wasOpen) => {
+                    if (wasOpen) return false;
+                    setCountryListOpen(false);
+                    return true;
+                  });
+                }}
+                aria-expanded={russiaListOpen}
+                aria-controls="ru-russia-collapse"
+              >
+                Russia regions{" "}
+                <span className="collapse-toggle__caret" aria-hidden>
+                  {russiaListOpen ? "▾" : "▸"}
+                </span>
+              </button>
+              {russiaListOpen ? (
+                <div id="ru-russia-collapse">
+                  <label className="regions-russia__all-russia">
+                    <input
+                      type="checkbox"
+                      checked={selectedAreaIds.has("113")}
+                      onChange={(e) => {
+                        if (e.target.checked) applyAllRussiaSelection();
+                        else setRussiaAll(false);
+                      }}
+                    />
+                    <span>Вся Россия (113)</span>
+                  </label>
+                  <div id="ru-scroll" className="ru-scroll" ref={ruScrollRef}>
+                    {ruSubjects.map((r) => (
+                      <label key={r.id} className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={selectedAreaIds.has(r.id)}
+                          onChange={() => toggleAreaId(r.id)}
+                        />{" "}
+                        {r.name}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </fieldset>
-            </div>
-          ) : null}
+              ) : null}
+            </fieldset>
           </div>
-
-          <p className="small muted filters-stack__presets-summary">
-            {selectedRegionsSummary.count === 0 ? (
-              <>Selected regions: All</>
-            ) : (
-              <>
-                Selected regions: {selectedRegionsSummary.count}
-                {selectedRegionsSummary.count <= 12
-                  ? ` (${selectedRegionsSummary.labels.join(", ")})`
-                  : ""}
-              </>
-            )}
-          </p>
+          </div>
 
           <div className="filters-stack__job-fields">
-            <MultiSelectChips
-              label="Experience"
-              options={experienceSelectOptions}
-              selected={experience}
-              onChange={setExperience}
-              placeholder="Any experience"
-              clearable
-            />
-            <MultiSelectChips
-              label="Employment type"
-              options={employmentSelectOptions}
-              selected={employmentForm}
-              onChange={setEmploymentForm}
-              placeholder="Any employment type"
-              clearable
-            />
-            <MultiSelectChips
-              label="Work format"
-              options={workFormatSelectOptions}
-              selected={workFormat}
-              onChange={setWorkFormat}
-              placeholder="Any work format"
-              clearable
-            />
+            <div className="filters-stack__job-fields-row filters-stack__job-fields-row--experience">
+              <MultiSelectChips
+                label="Experience"
+                options={experienceSelectOptions}
+                selected={experience}
+                onChange={setExperience}
+                placeholder="Any experience"
+                clearable
+              />
+            </div>
+            <div className="filters-stack__job-fields-row">
+              <MultiSelectChips
+                label="Employment type"
+                options={employmentSelectOptions}
+                selected={employmentForm}
+                onChange={setEmploymentForm}
+                placeholder="Any employment type"
+                clearable
+              />
+              <MultiSelectChips
+                label="Work format"
+                options={workFormatSelectOptions}
+                selected={workFormat}
+                onChange={setWorkFormat}
+                placeholder="Any work format"
+                clearable
+              />
+            </div>
           </div>
 
-          <div className="field">
+          <div className="filters-actions-bar">
+            <button type="button" className="secondary filters-actions-bar__btn" onClick={() => setIsImportOpen(true)}>
+              <span className="filters-actions-bar__btn-icon" aria-hidden>
+                <FiltersBarIconImport />
+              </span>
+              <span>Import from HH</span>
+            </button>
+            <button type="button" className="secondary filters-actions-bar__btn" onClick={openInHeadHunter}>
+              <span className="filters-actions-bar__btn-icon" aria-hidden>
+                <FiltersBarIconHh />
+              </span>
+              <span>Open in HH</span>
+            </button>
+            <button
+              type="button"
+              className="secondary filters-actions-bar__copy"
+              aria-label="Copy search link"
+              title={copyDone ? "Copied" : "Copy search link"}
+              onClick={() => void copySearchLink()}
+            >
+              {copyDone ? "✓" : "🔗"}
+            </button>
+          </div>
+
+          <div className="field filters-stack__vacancy-labels">
           {VACANCY_LABEL_IDS.map((id) => (
-            <label key={id} className="check-row">
+            <label key={id} className="check-row check-row--compact">
               <input
                 type="checkbox"
                 checked={labels.has(id)}
@@ -1059,28 +1148,10 @@ export function SearchPage() {
                     return n;
                   })
                 }
-              />{" "}
-              {VACANCY_LABELS_EN[id]}
+              />
+              <span>{VACANCY_LABELS_EN[id]}</span>
             </label>
           ))}
-          </div>
-
-          <div className="filters-actions-bar">
-            <button type="button" className="secondary filters-actions-bar__btn" onClick={() => setIsImportOpen(true)}>
-              Import from HeadHunter
-            </button>
-            <button type="button" className="secondary filters-actions-bar__btn" onClick={openInHeadHunter}>
-              Open in HeadHunter
-            </button>
-            <button
-              type="button"
-              className="secondary filters-actions-bar__copy"
-              aria-label="Copy search link"
-              title={copyDone ? "Copied" : "Copy search link"}
-              onClick={() => void copySearchLink()}
-            >
-              {copyDone ? "✓" : "🔗"}
-            </button>
           </div>
         </div>
 
@@ -1094,12 +1165,12 @@ export function SearchPage() {
             className="modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Import from HeadHunter"
+            aria-label="Import from HH"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>Import from HeadHunter</h2>
+            <h2>Import from HH</h2>
             <label>
-              <span>HeadHunter URL</span>
+              <span>HH URL</span>
               <textarea
                 value={importUrl}
                 onChange={(e) => setImportUrl(e.target.value)}

@@ -64,7 +64,7 @@ code {
 
 @media (min-width: 960px) {
   .layout {
-    grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
     align-items: start;
   }
 }
@@ -124,20 +124,36 @@ code {
   flex-wrap: wrap;
   gap: calc(var(--filters-stack-gap) / 2);
   min-width: 0;
+  width: 100%;
 }
 
 .panel.filters .filters-stack__job-fields-row .multi-select-chips {
-  flex: 1 1 200px;
+  flex: 1 1 0;
   min-width: 0;
 }
 
+.panel.filters .filters-stack__job-fields-row--experience .multi-select-chips {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.panel.filters .filters-stack__job-fields-row + .filters-stack__job-fields-row {
+  margin-top: 0.55rem;
+}
+
 .panel.filters .filters-stack__presets-summary {
-  margin: 0;
+  margin: 0 0 0.35rem;
   font-weight: 600;
+  font-size: 0.68rem;
+  line-height: 1.4;
 }
 
 .field--text-search-block .text-search-block__exclude {
   margin-top: 1.35rem;
+}
+
+.panel.filters .field--text-search-block .search-fields-inline {
+  margin-top: calc(0.35rem + 4px);
 }
 
 /* Nested label: .field > label > span only matches direct child labels, not this block */
@@ -180,7 +196,52 @@ code {
 
 .panel.filters .filters-stack__salary-group .salary-stated-row {
   margin: 0;
-  font-size: 0.88rem;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Salary specified + vacancy label filters: smaller type and checkboxes */
+.panel.filters .check-row--compact {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.12rem 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+/* Filter panel: one compact checkbox size (same ballpark as country/region lists) */
+.panel.filters input[type="checkbox"] {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.panel.filters .check-row--compact input[type="checkbox"] {
+  margin: 0.1rem 0 0 0;
+}
+
+.panel.filters .check-row--compact > span {
+  display: block;
+  font-size: inherit;
+  color: var(--muted);
+  margin: 0;
+  line-height: inherit;
+}
+
+.panel.filters .filters-stack__vacancy-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.panel.filters .filters-stack__vacancy-labels .check-row--compact {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .panel.filters .filters-after {
@@ -205,6 +266,27 @@ code {
 .filters-actions-bar__copy {
   margin-top: 0 !important;
   height: 2.45rem;
+}
+
+.filters-actions-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.filters-actions-bar__btn-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.filters-actions-bar__btn-svg {
+  display: block;
+}
+
+.filters-actions-bar__btn-svg--stroke {
+  color: inherit;
 }
 
 .filters-actions-bar__copy {
@@ -299,6 +381,10 @@ fieldset legend {
   white-space: nowrap;
 }
 
+.panel.filters .search-fields-inline input[type="checkbox"] {
+  margin: 0;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -326,6 +412,33 @@ fieldset legend {
   box-shadow: inset 0 0 0 1px var(--accent-dim);
 }
 
+/* Preset region chips: label color как у name / company (.search-fields-inline) */
+.panel.filters .chips .chip {
+  color: var(--muted);
+}
+
+.panel.filters .chips .chip:hover:not(.chip--on) {
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
+/* Полное выделение: мягче, чем глобальный chip--on (без белого на ярко-синем) */
+.panel.filters .chips .chip--on {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent-dim) 75%, var(--border));
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-dim) 35%, transparent);
+}
+
+.panel.filters .chips .chip--on:hover {
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent-dim) 85%, var(--border));
+  color: var(--text);
+}
+
+.panel.filters .chips .chip--partial {
+  color: var(--muted);
+}
+
 .regions-split {
   display: grid;
   gap: 1rem;
@@ -333,8 +446,20 @@ fieldset legend {
   min-width: 0;
 }
 
+/* Tighter to preset chips: less air above All countries / Russia regions */
+.panel.filters .regions-split {
+  margin-top: -0.75rem;
+}
+
+/* Два столбца: All countries и Russia regions — одна линия заголовков */
 .regions-split--with-russia {
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 36%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (max-width: 640px) {
+  .regions-split--with-russia {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .regions-countries {
@@ -345,11 +470,45 @@ fieldset legend {
   min-width: 0;
 }
 
+.regions-russia__all-russia {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.25rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.panel.filters .regions-russia__all-russia {
+  color: var(--muted);
+}
+
+.regions-russia__all-russia input {
+  flex-shrink: 0;
+}
+
+/* Override .field > label > span (muted block label) for this row */
+.panel.filters .regions-russia__all-russia > span {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
 .ru-scroll,
 .country-scroll {
   overflow: auto;
   margin-top: 0.5rem;
   padding-right: 0.25rem;
+}
+
+.panel.filters .country-scroll .check-row,
+.panel.filters .ru-scroll .check-row {
+  color: var(--muted);
 }
 
 .ru-scroll {
@@ -359,6 +518,73 @@ fieldset legend {
 .country-scroll {
   width: 100%;
   max-height: 9.5rem;
+}
+
+.country-search-wrap {
+  position: relative;
+  margin-top: 0.35rem;
+}
+
+.country-search-wrap__input {
+  width: 100%;
+  padding-right: 1.85rem;
+}
+
+.country-search-wrap:not(:has(.country-search-wrap__clear)) .country-search-wrap__input {
+  padding-right: 0.55rem;
+}
+
+.country-search-wrap__clear {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  width: 1.2rem;
+  height: 1.2rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.country-search-wrap__clear:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.collapse-toggle {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  margin: 0.15rem 0 0.25rem;
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.panel.filters .collapse-toggle {
+  margin-top: 0;
+}
+
+.collapse-toggle:hover {
+  color: var(--text);
+}
+
+.collapse-toggle__caret {
+  display: inline-block;
+  font-size: 1.22em;
+  line-height: 1;
+  vertical-align: baseline;
+  margin-left: 0.06em;
 }
 
 .multi-select-chips {
@@ -376,13 +602,13 @@ fieldset legend {
   position: relative;
   width: 100%;
   text-align: left;
-  padding: 0.45rem 0.55rem;
+  padding: 0.28rem 0.5rem;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 85%, var(--bg));
   color: var(--text);
   cursor: pointer;
-  min-height: 2.45rem;
+  min-height: 2.2rem;
   font: inherit;
   box-sizing: border-box;
 }
@@ -409,14 +635,16 @@ fieldset legend {
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
+  min-width: 0;
 }
 
 .multi-select-chips__clear {
   position: absolute;
-  top: 0.25rem;
+  top: 50%;
   right: 0.3rem;
-  width: 1.2rem;
-  height: 1.2rem;
+  transform: translateY(-50%);
+  width: 1.15rem;
+  height: 1.15rem;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -436,8 +664,14 @@ fieldset legend {
 }
 
 .multi-select-chips__placeholder {
+  display: block;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .multi-select-chips__pill {
@@ -483,8 +717,12 @@ fieldset legend {
   cursor: pointer;
 }
 
-.multi-select-chips__row input {
+.multi-select-chips__row input[type="checkbox"] {
   flex-shrink: 0;
+}
+
+.panel.filters .multi-select-chips__row input[type="checkbox"] {
+  margin: 0;
 }
 
 .salary-currency-field {
@@ -524,6 +762,16 @@ fieldset legend {
   border-radius: 0 !important;
   border-left: 1px solid color-mix(in srgb, var(--border) 65%, transparent) !important;
   background: transparent !important;
+  cursor: pointer;
+}
+
+.panel.filters .salary-currency-input__currency {
+  color: var(--muted);
+}
+
+.panel.filters .salary-currency-input__currency option {
+  color: var(--muted);
+  background-color: var(--panel);
 }
 
 .actions {
