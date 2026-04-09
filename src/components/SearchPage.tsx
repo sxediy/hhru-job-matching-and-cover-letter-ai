@@ -158,6 +158,8 @@ export function SearchPage() {
     currencyResolved: "",
   });
   const searchRequestIdRef = useRef(0);
+  const countryScrollRef = useRef<HTMLDivElement>(null);
+  const ruScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -508,6 +510,32 @@ export function SearchPage() {
     runSearch,
   ]);
 
+  useEffect(() => {
+    if (!dicts || !areasBundle) return;
+
+    function redirectWheelUnlessFieldsetFocused(el: HTMLElement) {
+      const onWheel = (e: WheelEvent) => {
+        const fs = el.closest("fieldset");
+        if (!fs || !(fs as HTMLElement).matches(":focus-within")) {
+          e.preventDefault();
+          window.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+        }
+      };
+      el.addEventListener("wheel", onWheel, { passive: false });
+      return () => el.removeEventListener("wheel", onWheel);
+    }
+
+    const cleanups: (() => void)[] = [];
+    const countryEl = countryScrollRef.current;
+    if (countryEl) cleanups.push(redirectWheelUnlessFieldsetFocused(countryEl));
+    const ruEl = ruScrollRef.current;
+    if (ruEl && russiaChipOn) cleanups.push(redirectWheelUnlessFieldsetFocused(ruEl));
+
+    return () => {
+      for (const c of cleanups) c();
+    };
+  }, [dicts, areasBundle, russiaChipOn]);
+
   if (loadError) {
     return (
       <div className="panel error">
@@ -635,7 +663,7 @@ export function SearchPage() {
                 onChange={(e) => setAreaQuery(e.target.value)}
                 placeholder="Search country…"
               />
-              <div className="country-scroll">
+              <div className="country-scroll" ref={countryScrollRef}>
                 {filteredCountries.map((c) => (
                   <label key={c.id} className="check-row">
                     <input
@@ -664,7 +692,7 @@ export function SearchPage() {
                   />{" "}
                   Вся Россия (113)
                 </label>
-                <div className="ru-scroll">
+                <div className="ru-scroll" ref={ruScrollRef}>
                   {ruSubjects.map((r) => (
                     <label key={r.id} className="check-row">
                       <input
