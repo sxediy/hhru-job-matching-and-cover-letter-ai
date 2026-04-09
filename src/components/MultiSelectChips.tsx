@@ -10,6 +10,7 @@ type Props = {
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   placeholder?: string;
+  clearable?: boolean;
 };
 
 export function MultiSelectChips({
@@ -18,6 +19,7 @@ export function MultiSelectChips({
   selected,
   onChange,
   placeholder = "Select…",
+  clearable = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,6 +70,14 @@ export function MultiSelectChips({
     [onChange, selected],
   );
 
+  const clearAll = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onChange(new Set());
+    },
+    [onChange],
+  );
+
   const optionById = useMemo(() => {
     const m = new Map<string, string>();
     for (const o of options) m.set(o.id, o.label);
@@ -86,6 +96,17 @@ export function MultiSelectChips({
         onClick={toggleOpen}
         onKeyDown={onTriggerKeyDown}
       >
+        {clearable && selected.size > 0 ? (
+          <button
+            type="button"
+            className="multi-select-chips__clear"
+            aria-label={`Clear ${label}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={clearAll}
+          >
+            ×
+          </button>
+        ) : null}
         <div className="multi-select-chips__inner">
           {selected.size === 0 ? (
             <span className="multi-select-chips__placeholder">{placeholder}</span>

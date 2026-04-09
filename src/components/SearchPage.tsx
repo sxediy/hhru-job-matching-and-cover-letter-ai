@@ -105,7 +105,7 @@ type SearchSnapshot = {
   searchFields: string[];
   selectedAreaIds: Set<string>;
   employmentForm: Set<string>;
-  experience: string;
+  experience: Set<string>;
   workFormat: Set<string>;
   labels: Set<string>;
   withStatedSalary: boolean;
@@ -119,7 +119,7 @@ type ParsedFilters = {
   searchFields: string[];
   areaIds: Set<string>;
   employmentForm: Set<string>;
-  experience: string;
+  experience: Set<string>;
   workFormat: Set<string>;
   labels: Set<string>;
   withStatedSalary: boolean;
@@ -150,8 +150,9 @@ function parseFiltersFromParams(
     labelValues.filter((id) => (VACANCY_LABEL_IDS as readonly string[]).includes(id)),
   );
 
-  const experience = params.get("experience")?.trim() ?? "";
-  const normalizedExperience = allowedExperience.has(experience) ? experience : "";
+  const normalizedExperience = new Set(
+    toSortedUnique(params.getAll("experience")).filter((id) => allowedExperience.has(id)),
+  );
 
   const salaryRaw = params.get("salary")?.trim() ?? "";
   const salaryNum = Number(salaryRaw);
@@ -193,7 +194,7 @@ function buildParamsFromSnapshot(snapshot: SearchSnapshot): URLSearchParams {
 
   for (const areaId of toSortedUnique(snapshot.selectedAreaIds)) params.append("area", areaId);
   for (const id of toSortedUnique(snapshot.employmentForm)) params.append("employment_form", id);
-  if (snapshot.experience.trim()) params.set("experience", snapshot.experience.trim());
+  for (const id of toSortedUnique(snapshot.experience)) params.append("experience", id);
   for (const id of toSortedUnique(snapshot.workFormat)) params.append("work_format", id);
   for (const id of toSortedUnique(snapshot.labels)) params.append("label", id);
   if (snapshot.withStatedSalary) params.append("label", "with_salary");
@@ -222,7 +223,7 @@ export function SearchPage() {
   const [areaQuery, setAreaQuery] = useState("");
 
   const [employmentForm, setEmploymentForm] = useState<Set<string>>(new Set());
-  const [experience, setExperience] = useState<string>("");
+  const [experience, setExperience] = useState<Set<string>>(new Set());
   const [workFormat, setWorkFormat] = useState<Set<string>>(new Set());
   const [labels, setLabels] = useState<Set<string>>(new Set());
   const [salaryAmount, setSalaryAmount] = useState("");
@@ -246,7 +247,7 @@ export function SearchPage() {
     searchFields: [...DEFAULT_SEARCH_FIELDS],
     selectedAreaIds: new Set(),
     employmentForm: new Set(),
-    experience: "",
+    experience: new Set(),
     workFormat: new Set(),
     labels: new Set(),
     withStatedSalary: false,
@@ -469,7 +470,6 @@ export function SearchPage() {
     return countriesEn.filter((c) => c.nameEn.toLowerCase().includes(q));
   }, [countriesEn, areaQuery]);
 
-  const experienceOptions = dicts?.experience ?? [];
   const allowedEmploymentForm = useMemo(
     () => new Set((dicts?.vacancy_search_employment_form ?? []).map((v) => v.id)),
     [dicts?.vacancy_search_employment_form],
@@ -498,6 +498,13 @@ export function SearchPage() {
       label: WORK_FORMAT_LABELS_EN[o.id] ?? o.name,
     }));
   }, [dicts?.work_format]);
+  const experienceSelectOptions = useMemo(() => {
+    const list = dicts?.experience ?? [];
+    return list.map((o) => ({
+      id: o.id,
+      label: EXPERIENCE_LABELS_EN[o.id] ?? o.name,
+    }));
+  }, [dicts?.experience]);
 
   const currencies = useMemo(() => {
     const list = (dicts?.currency ?? []).filter((c) => c.in_use !== false);
@@ -513,6 +520,7 @@ export function SearchPage() {
 
   const selectedAreaIdsKey = useMemo(() => [...selectedAreaIds].sort().join(","), [selectedAreaIds]);
   const employmentFormKey = useMemo(() => [...employmentForm].sort().join(","), [employmentForm]);
+  const experienceKey = useMemo(() => [...experience].sort().join(","), [experience]);
   const workFormatKey = useMemo(() => [...workFormat].sort().join(","), [workFormat]);
   const labelsKey = useMemo(() => [...labels].sort().join(","), [labels]);
 
@@ -560,7 +568,7 @@ export function SearchPage() {
             : s.searchFields,
         areaIds,
         employmentForm: [...s.employmentForm],
-        experience: s.experience || undefined,
+        experience: s.experience.size ? [...s.experience] : undefined,
         workFormat: [...s.workFormat],
         labels: [...s.labels],
         withStatedSalary: s.withStatedSalary || undefined,
@@ -613,7 +621,7 @@ export function SearchPage() {
     sfDesc,
     selectedAreaIdsKey,
     employmentFormKey,
-    experience,
+    experienceKey,
     workFormatKey,
     labelsKey,
     withStatedSalary,
@@ -695,7 +703,7 @@ export function SearchPage() {
     sfDesc,
     selectedAreaIdsKey,
     employmentFormKey,
-    experience,
+    experienceKey,
     workFormatKey,
     labelsKey,
     withStatedSalary,
@@ -1011,37 +1019,30 @@ export function SearchPage() {
           </p>
 
           <div className="filters-stack__job-fields">
-            <div className="field">
-              <label>
-                <span>Experience</span>
-                <select value={experience} onChange={(e) => setExperience(e.target.value)}>
-                  <option value="">Any</option>
-                  {experienceOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {EXPERIENCE_LABELS_EN[o.id] ?? o.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="filters-stack__job-fields-row">
-              <MultiSelectChips
-                label="Employment type"
-                options={employmentSelectOptions}
-                selected={employmentForm}
-                onChange={setEmploymentForm}
-                placeholder="Select…"
-              />
-
-              <MultiSelectChips
-                label="Work format"
-                options={workFormatSelectOptions}
-                selected={workFormat}
-                onChange={setWorkFormat}
-                placeholder="Select…"
-              />
-            </div>
+            <MultiSelectChips
+              label="Experience"
+              options={experienceSelectOptions}
+              selected={experience}
+              onChange={setExperience}
+              placeholder="Any experience"
+              clearable
+            />
+            <MultiSelectChips
+              label="Employment type"
+              options={employmentSelectOptions}
+              selected={employmentForm}
+              onChange={setEmploymentForm}
+              placeholder="Any employment type"
+              clearable
+            />
+            <MultiSelectChips
+              label="Work format"
+              options={workFormatSelectOptions}
+              selected={workFormat}
+              onChange={setWorkFormat}
+              placeholder="Any work format"
+              clearable
+            />
           </div>
 
           <div className="field">

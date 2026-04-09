@@ -373,6 +373,7 @@ fieldset legend {
 }
 
 .multi-select-chips__trigger {
+  position: relative;
   width: 100%;
   text-align: left;
   padding: 0.45rem 0.55rem;
@@ -384,6 +385,10 @@ fieldset legend {
   min-height: 2.45rem;
   font: inherit;
   box-sizing: border-box;
+}
+
+.multi-select-chips__trigger:has(.multi-select-chips__clear) {
+  padding-right: 1.95rem;
 }
 
 .multi-select-chips__trigger:focus {
@@ -404,6 +409,30 @@ fieldset legend {
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
+}
+
+.multi-select-chips__clear {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.3rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.multi-select-chips__clear:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .multi-select-chips__placeholder {

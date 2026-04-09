@@ -22,7 +22,9 @@ export function buildVacancySearchParams(payload: VacancySearchPayload): URLSear
     if (id) p.append("employment_form", id);
   }
 
-  if (payload.experience) p.set("experience", payload.experience);
+  for (const id of payload.experience ?? []) {
+    if (id) p.append("experience", id);
+  }
 
   for (const id of payload.workFormat ?? []) {
     if (id) p.append("work_format", id);
