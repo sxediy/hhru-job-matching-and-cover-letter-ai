@@ -6,6 +6,14 @@ import { MultiSelectChips } from "@/components/MultiSelectChips";
 import { parseSalaryAmount, SalaryCurrencyInput } from "@/components/SalaryCurrencyInput";
 import { VacancyCard, type VacancyItem } from "@/components/VacancyCard";
 import { countryNameRuToEn } from "@/lib/hh/countryNameEn";
+import {
+  buildVacancyAppUrlSearchParams,
+  parseVacancyAppSearchFromUrlSearchParams,
+  urlSearchParamsHasVacancyAppFilter,
+  VACANCY_APP_URL_LABEL_IDS,
+  type VacancyAppUrlLabelId,
+} from "@/lib/hh/vacancyAppSearchUrl";
+import { DEFAULT_VACANCY_SEARCH_FIELDS } from "@/lib/hh/vacancySearchDefaults";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type DictItem = { id: string; name: string };
@@ -50,24 +58,14 @@ const PRESET_CHIP_ORDER: PresetChipKey[] = [
   "otherRegions",
 ];
 
-const VACANCY_LABEL_IDS = [
-  "not_from_agency",
-  "accept_handicapped",
-  "with_address",
-  "low_performance",
-  "accredited_it",
-] as const;
-
 /** hh.ru vacancy `label` ids (subset) → English UI text */
-const VACANCY_LABELS_EN: Record<(typeof VACANCY_LABEL_IDS)[number], string> = {
+const VACANCY_LABELS_EN: Record<VacancyAppUrlLabelId, string> = {
   not_from_agency: "Not from agencies",
   accept_handicapped: "Accessible for people with disabilities",
   with_address: "With workplace address",
   low_performance: "Under 10 responses",
   accredited_it: "Accredited IT company",
 };
-
-const DEFAULT_SEARCH_FIELDS = ["name", "company_name", "description"] as const;
 
 /** hh.ru `experience` dictionary ids → English labels */
 const EXPERIENCE_LABELS_EN: Record<string, string> = {
@@ -106,94 +104,6 @@ type SearchSnapshot = {
   salaryAmount: string;
   currencyResolved: string;
 };
-
-type ParsedFilters = {
-  text: string;
-  excludedText: string;
-  searchFields: string[];
-  areaIds: Set<string>;
-  employmentForm: Set<string>;
-  experience: Set<string>;
-  workFormat: Set<string>;
-  labels: Set<string>;
-  withStatedSalary: boolean;
-  salaryAmount: string;
-  currency_code: string;
-};
-
-function toSortedUnique(values: Iterable<string>): string[] {
-  return [...new Set([...values].filter(Boolean))].sort((a, b) => a.localeCompare(b, "en"));
-}
-
-function parseFiltersFromParams(
-  params: URLSearchParams,
-  allowedEmploymentForm: Set<string>,
-  allowedWorkFormat: Set<string>,
-  allowedExperience: Set<string>,
-): ParsedFilters {
-  const allSearchFields = toSortedUnique(params.getAll("search_field"));
-  const searchFields =
-    allSearchFields.length === 0
-      ? [...DEFAULT_SEARCH_FIELDS]
-      : allSearchFields.filter((f) => DEFAULT_SEARCH_FIELDS.includes(f as (typeof DEFAULT_SEARCH_FIELDS)[number]));
-  const effectiveSearchFields = searchFields.length > 0 ? searchFields : [...DEFAULT_SEARCH_FIELDS];
-
-  const labelValues = params.getAll("label");
-  const withStatedSalary = labelValues.includes("with_salary");
-  const labels = new Set(
-    labelValues.filter((id) => (VACANCY_LABEL_IDS as readonly string[]).includes(id)),
-  );
-
-  const normalizedExperience = new Set(
-    toSortedUnique(params.getAll("experience")).filter((id) => allowedExperience.has(id)),
-  );
-
-  const salaryRaw = params.get("salary")?.trim() ?? "";
-  const salaryNum = Number(salaryRaw);
-  const salaryAmount =
-    salaryRaw !== "" && Number.isFinite(salaryNum) && salaryNum > 0 ? String(Math.trunc(salaryNum)) : "";
-
-  return {
-    text: params.get("text")?.trim() ?? "",
-    excludedText: params.get("excluded_text")?.trim() ?? "",
-    searchFields: effectiveSearchFields,
-    areaIds: new Set(toSortedUnique(params.getAll("area"))),
-    employmentForm: new Set(
-      toSortedUnique(params.getAll("employment_form")).filter((id) => allowedEmploymentForm.has(id)),
-    ),
-    experience: normalizedExperience,
-    workFormat: new Set(
-      toSortedUnique(params.getAll("work_format")).filter((id) => allowedWorkFormat.has(id)),
-    ),
-    labels,
-    withStatedSalary,
-    salaryAmount,
-    currency_code: params.get("currency_code")?.trim().toUpperCase() ?? "",
-  };
-}
-
-function buildParamsFromSnapshot(snapshot: SearchSnapshot): URLSearchParams {
-  const params = new URLSearchParams();
-  if (snapshot.text.trim()) params.set("text", snapshot.text.trim());
-  if (snapshot.excludedText.trim()) params.set("excluded_text", snapshot.excludedText.trim());
-
-  for (const field of toSortedUnique(snapshot.searchFields)) {
-    params.append("search_field", field);
-  }
-
-  for (const areaId of toSortedUnique(snapshot.selectedAreaIds)) params.append("area", areaId);
-  for (const id of toSortedUnique(snapshot.employmentForm)) params.append("employment_form", id);
-  for (const id of toSortedUnique(snapshot.experience)) params.append("experience", id);
-  for (const id of toSortedUnique(snapshot.workFormat)) params.append("work_format", id);
-  for (const id of toSortedUnique(snapshot.labels)) params.append("label", id);
-  if (snapshot.withStatedSalary) params.append("label", "with_salary");
-
-  if (snapshot.salaryAmount && snapshot.currencyResolved) {
-    params.set("salary", snapshot.salaryAmount);
-    params.set("currency_code", snapshot.currencyResolved);
-  }
-  return params;
-}
 
 function FiltersBarIconImport() {
   return (
@@ -275,7 +185,7 @@ export function SearchPage() {
   const snapshotRef = useRef<SearchSnapshot>({
     text: "",
     excludedText: "",
-    searchFields: [...DEFAULT_SEARCH_FIELDS],
+    searchFields: [...DEFAULT_VACANCY_SEARCH_FIELDS],
     selectedAreaIds: new Set(),
     employmentForm: new Set(),
     experience: new Set(),
@@ -584,7 +494,7 @@ export function SearchPage() {
         searchFields:
           s.searchFields.length === 0 ||
           (s.searchFields.length === 3 &&
-            DEFAULT_SEARCH_FIELDS.every((f) => s.searchFields.includes(f)))
+            DEFAULT_VACANCY_SEARCH_FIELDS.every((f) => s.searchFields.includes(f)))
             ? undefined
             : s.searchFields,
         areaIds,
@@ -632,7 +542,11 @@ export function SearchPage() {
 
   useEffect(() => {
     if (!dicts || !areasBundle) return;
-    if (!initializedFromUrlRef.current && window.location.search) return;
+    if (
+      !initializedFromUrlRef.current &&
+      urlSearchParamsHasVacancyAppFilter(new URLSearchParams(window.location.search))
+    )
+      return;
     void runSearch(0, false);
   }, [
     dicts,
@@ -653,13 +567,12 @@ export function SearchPage() {
   useEffect(() => {
     if (!dicts || !areasBundle || initializedFromUrlRef.current) return;
     const initialParams = new URLSearchParams(window.location.search);
-    const hadInitialQuery = initialParams.toString().length > 0;
-    const parsed = parseFiltersFromParams(
-      initialParams,
-      allowedEmploymentForm,
-      allowedWorkFormat,
-      allowedExperience,
-    );
+    const hadInitialAppFilters = urlSearchParamsHasVacancyAppFilter(initialParams);
+    const parsed = parseVacancyAppSearchFromUrlSearchParams(initialParams, {
+      employmentForm: allowedEmploymentForm,
+      workFormat: allowedWorkFormat,
+      experience: allowedExperience,
+    });
     initializedFromUrlRef.current = true;
     setText(parsed.text);
     setExcludedText(parsed.excludedText);
@@ -688,7 +601,7 @@ export function SearchPage() {
       salaryAmount: parsed.salaryAmount,
       currencyResolved: parsed.currency_code,
     };
-    if (hadInitialQuery) {
+    if (hadInitialAppFilters) {
       queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
     }
   }, [
@@ -703,7 +616,7 @@ export function SearchPage() {
 
   useEffect(() => {
     if (!initializedFromUrlRef.current) return;
-    const params = buildParamsFromSnapshot(snapshotRef.current);
+    const params = buildVacancyAppUrlSearchParams(snapshotRef.current);
     const next = params.toString();
     const current = window.location.search.startsWith("?")
       ? window.location.search.slice(1)
@@ -737,7 +650,7 @@ export function SearchPage() {
   );
 
   const openInHeadHunter = useCallback(() => {
-    const params = buildParamsFromSnapshot(snapshotRef.current);
+    const params = buildVacancyAppUrlSearchParams(snapshotRef.current);
     params.delete("page");
     params.delete("per_page");
     const url = `https://hh.ru/search/vacancy?${params.toString()}`;
@@ -787,12 +700,11 @@ export function SearchPage() {
     }
     try {
       const parsedUrl = new URL(raw);
-      const parsed = parseFiltersFromParams(
-        parsedUrl.searchParams,
-        allowedEmploymentForm,
-        allowedWorkFormat,
-        allowedExperience,
-      );
+      const parsed = parseVacancyAppSearchFromUrlSearchParams(parsedUrl.searchParams, {
+        employmentForm: allowedEmploymentForm,
+        workFormat: allowedWorkFormat,
+        experience: allowedExperience,
+      });
       setText(parsed.text);
       setExcludedText(parsed.excludedText);
       setSfName(parsed.searchFields.includes("name"));
@@ -1135,7 +1047,7 @@ export function SearchPage() {
           </div>
 
           <div className="field filters-stack__vacancy-labels">
-          {VACANCY_LABEL_IDS.map((id) => (
+          {VACANCY_APP_URL_LABEL_IDS.map((id) => (
             <label key={id} className="check-row check-row--compact">
               <input
                 type="checkbox"

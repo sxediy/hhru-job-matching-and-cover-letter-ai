@@ -1,4 +1,5 @@
-export type VacancySearchPayload = {
+/** Filter fields shared by the app URL and the hh.ru vacancies API (plus API-only pagination/flags). */
+export type VacancySearchFilters = {
   text?: string;
   /** hh.ru `excluded_text`: comma-separated words to filter out */
   excludedText?: string;
@@ -13,6 +14,9 @@ export type VacancySearchPayload = {
   withStatedSalary?: boolean;
   salary?: number | null;
   currency_code?: string;
+};
+
+export type VacancySearchPayload = VacancySearchFilters & {
   page?: number;
   perPage?: number;
 };
