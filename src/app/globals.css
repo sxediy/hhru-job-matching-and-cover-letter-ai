@@ -99,24 +99,85 @@ code {
   margin: 0.85rem 0;
 }
 
+.panel.filters {
+  position: relative;
+  --filters-stack-margin-top: calc(0.55rem * 1.5 + 0.55rem);
+}
+
 .panel.filters .field {
   margin-top: 0;
   margin-bottom: 0;
 }
 
+/* Restore + Clear: compact outline like action bar (muted + border), panel corner */
+.panel.filters > .filters-panel-top-actions {
+  position: absolute;
+  /* Tight to panel top inside padding */
+  top: calc(1rem - 0.5rem);
+  right: 1.1rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-width: 9rem;
+  padding: 0.32rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
+.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .panel.filters .filters-stack {
   --filters-stack-gap: calc(1.35rem * 1.5);
+  --filters-text-block-row-gap: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: var(--filters-stack-gap);
-  margin-top: calc(0.9rem * 1.5);
+  /* Slightly tighter to Keywords vs panel top */
+  margin-top: var(--filters-stack-margin-top);
+}
+
+/* Text block (Keywords…) vs Salary: extra air so Salary reads as a separate block */
+.panel.filters .field--text-search-block + .filters-stack__salary-group {
+  margin-top: calc(var(--filters-text-block-row-gap) - var(--filters-stack-gap) + 0.95rem);
 }
 
 .panel.filters .filters-stack__job-fields {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--filters-stack-gap) / 2);
+  gap: calc(var(--filters-stack-gap) * 0.38);
   min-width: 0;
+  margin-top: -0.55rem;
 }
 
 .panel.filters .filters-stack__job-fields-row {
@@ -138,7 +199,7 @@ code {
 }
 
 .panel.filters .filters-stack__job-fields-row + .filters-stack__job-fields-row {
-  margin-top: 0.55rem;
+  margin-top: 0.2rem;
 }
 
 .panel.filters .filters-stack__presets-summary {
@@ -148,8 +209,68 @@ code {
   line-height: 1.4;
 }
 
-.field--text-search-block .text-search-block__exclude {
-  margin-top: 1.35rem;
+.panel.filters .field--text-search-block .text-search-block__exclude {
+  margin-top: var(--filters-text-block-row-gap);
+}
+
+/* Keywords / Exclude / Search in: same label rhythm and left edge as other text inputs */
+.panel.filters .field--text-search-block > .filters-stack__job-fields-row {
+  margin-top: var(--filters-text-block-row-gap);
+  width: 100%;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips {
+  width: 100%;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__label {
+  margin: 0 0 0.35rem 0;
+  line-height: 1.35;
+}
+
+/* Multi-select triggers 32px empty or with chips (row scrolls if many) */
+.panel.filters .field--text-search-block .multi-select-chips__trigger,
+.panel.filters .filters-stack__job-fields .multi-select-chips__trigger {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  max-height: 32px;
+  height: 32px;
+  padding: 0 0.55rem;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__trigger:has(.multi-select-chips__clear):has(.multi-select-chips__pill),
+.panel.filters .filters-stack__job-fields .multi-select-chips__trigger:has(.multi-select-chips__clear):has(.multi-select-chips__pill) {
+  padding-right: 1.95rem;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__inner,
+.panel.filters .filters-stack__job-fields .multi-select-chips__inner {
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  max-height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__pill,
+.panel.filters .filters-stack__job-fields .multi-select-chips__pill {
+  padding: 0.04rem 0.36rem;
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__placeholder,
+.panel.filters .filters-stack__job-fields .multi-select-chips__placeholder {
+  font-size: inherit;
+  line-height: 1.2;
 }
 
 .panel.filters .field--text-search-block .search-fields-inline {
@@ -233,15 +354,30 @@ code {
 }
 
 .panel.filters .filters-stack__vacancy-labels {
-  display: flex;
-  flex-direction: column;
-  gap: 0.42rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 0.55rem;
+  row-gap: 0;
+  align-items: start;
+}
+
+@media (max-width: 520px) {
+  .panel.filters .filters-stack__vacancy-labels {
+    grid-template-columns: 1fr;
+  }
 }
 
 .panel.filters .filters-stack__vacancy-labels .check-row--compact {
   margin: 0;
   font-size: 12px;
   line-height: 1.35;
+  min-width: 0;
+}
+
+@media (min-width: 521px) {
+  .panel.filters .filters-stack__vacancy-labels .check-row--compact:nth-child(n + 4) {
+    margin-top: -0.5rem;
+  }
 }
 
 .panel.filters .filters-after {
@@ -260,6 +396,11 @@ code {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 0.6rem;
   align-items: stretch;
+}
+
+/* Second row: Save spans full bar width */
+.panel.filters .filters-actions-bar > .filters-actions-bar__save-col {
+  grid-column: 1 / -1;
 }
 
 .filters-actions-bar__btn,
@@ -295,6 +436,25 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Muted label + border like preset chips off-state; HH tile keeps its own colors in SVG */
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__btn,
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__btn:hover:not(:disabled),
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__btn:focus-visible,
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
@@ -595,7 +755,7 @@ fieldset legend {
   display: block;
   font-size: 0.8rem;
   color: var(--muted);
-  margin-bottom: 0.35rem;
+  margin: 0.7rem 0 0 0.35rem;
 }
 
 .multi-select-chips__trigger {

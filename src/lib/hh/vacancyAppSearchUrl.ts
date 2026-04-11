@@ -1,4 +1,8 @@
-import { DEFAULT_VACANCY_SEARCH_FIELDS, type DefaultVacancySearchField } from "./vacancySearchDefaults";
+import {
+  DEFAULT_VACANCY_SEARCH_FIELDS,
+  isFullDefaultVacancySearchFields,
+  type DefaultVacancySearchField,
+} from "./vacancySearchDefaults";
 
 /**
  * Query keys used in the **app** URL for vacancy search filters (hh.ru web-style names).
@@ -32,8 +36,8 @@ export function urlSearchParamsHasVacancyAppFilter(params: URLSearchParams): boo
 /** hh.ru vacancy `label` ids we persist in the app URL (subset of dictionary). */
 export const VACANCY_APP_URL_LABEL_IDS = [
   "not_from_agency",
-  "accept_handicapped",
   "with_address",
+  "accept_handicapped",
   "low_performance",
   "accredited_it",
 ] as const;
@@ -131,8 +135,11 @@ export function buildVacancyAppUrlSearchParams(snapshot: VacancyAppUrlWriteState
   if (snapshot.text.trim()) params.set("text", snapshot.text.trim());
   if (snapshot.excludedText.trim()) params.set("excluded_text", snapshot.excludedText.trim());
 
-  for (const field of toSortedUnique(snapshot.searchFields)) {
-    params.append("search_field", field);
+  const searchFieldsSorted = toSortedUnique(snapshot.searchFields);
+  if (!isFullDefaultVacancySearchFields(searchFieldsSorted)) {
+    for (const field of searchFieldsSorted) {
+      params.append("search_field", field);
+    }
   }
 
   for (const areaId of toSortedUnique(snapshot.selectedAreaIds)) params.append("area", areaId);

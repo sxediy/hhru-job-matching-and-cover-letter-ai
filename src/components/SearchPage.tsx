@@ -13,7 +13,16 @@ import {
   VACANCY_APP_URL_LABEL_IDS,
   type VacancyAppUrlLabelId,
 } from "@/lib/hh/vacancyAppSearchUrl";
-import { DEFAULT_VACANCY_SEARCH_FIELDS } from "@/lib/hh/vacancySearchDefaults";
+import {
+  DEFAULT_VACANCY_SEARCH_FIELDS,
+  effectiveVacancySearchFieldIds,
+  isFullDefaultVacancySearchFields,
+} from "@/lib/hh/vacancySearchDefaults";
+import {
+  parseFiltersRecordToUrlSearchParams,
+  serializeAppUrlParamsToFiltersRecord,
+} from "@/lib/hh/vacancySearchPreferences";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type DictItem = { id: string; name: string };
@@ -57,6 +66,17 @@ const PRESET_CHIP_ORDER: PresetChipKey[] = [
   "russia",
   "otherRegions",
 ];
+
+const SEARCH_FIELD_OPTIONS = [
+  { id: "name", label: "Vacancy title" },
+  { id: "company_name", label: "Company name" },
+  { id: "description", label: "Description" },
+] as const;
+
+function vacancySearchFieldIdsFromParsed(parsedSearchFields: string[]): Set<string> {
+  if (isFullDefaultVacancySearchFields(parsedSearchFields)) return new Set();
+  return new Set(parsedSearchFields);
+}
 
 /** hh.ru vacancy `label` ids (subset) → English UI text */
 const VACANCY_LABELS_EN: Record<VacancyAppUrlLabelId, string> = {
@@ -146,6 +166,66 @@ function FiltersBarIconHh() {
   );
 }
 
+function FiltersBarIconSave() {
+  return (
+    <svg
+      className="filters-actions-bar__btn-svg filters-actions-bar__btn-svg--stroke"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2z" />
+      <path d="M17 21v-9H7v9" />
+      <path d="M7 3v6h7" />
+    </svg>
+  );
+}
+
+function FiltersBarIconLink() {
+  return (
+    <svg
+      className="filters-actions-bar__btn-svg filters-actions-bar__btn-svg--stroke"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+function FiltersBarIconCheck() {
+  return (
+    <svg
+      className="filters-actions-bar__btn-svg filters-actions-bar__btn-svg--stroke"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
   const [areasBundle, setAreasBundle] = useState<AreasBundle | null>(null);
@@ -153,9 +233,8 @@ export function SearchPage() {
 
   const [text, setText] = useState("");
   const [excludedText, setExcludedText] = useState("");
-  const [sfName, setSfName] = useState(true);
-  const [sfCompany, setSfCompany] = useState(true);
-  const [sfDesc, setSfDesc] = useState(true);
+  /** Empty = default (all three hh.ru search fields); non-empty = restrict to selected ids. */
+  const [searchFieldIds, setSearchFieldIds] = useState<Set<string>>(() => new Set());
 
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [russiaAll, setRussiaAll] = useState(false);
@@ -199,7 +278,14 @@ export function SearchPage() {
   const countryScrollRef = useRef<HTMLDivElement>(null);
   const ruScrollRef = useRef<HTMLDivElement>(null);
   const initializedFromUrlRef = useRef(false);
+  const initialUrlHadAppFiltersRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
+
+  const [urlInitialized, setUrlInitialized] = useState(false);
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
+  const [savePrefsBusy, setSavePrefsBusy] = useState(false);
+  const [savePrefsError, setSavePrefsError] = useState<string | null>(null);
+  const [restorePrefsBusy, setRestorePrefsBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,13 +327,9 @@ export function SearchPage() {
 
   const ruSubjectIds = useMemo(() => new Set(ruSubjects.map((r) => r.id)), [ruSubjects]);
 
-  const searchFields = useMemo(() => {
-    const next: string[] = [];
-    if (sfName) next.push("name");
-    if (sfCompany) next.push("company_name");
-    if (sfDesc) next.push("description");
-    return next;
-  }, [sfName, sfCompany, sfDesc]);
+  const searchFields = useMemo(() => effectiveVacancySearchFieldIds(searchFieldIds), [searchFieldIds]);
+
+  const searchFieldsKey = useMemo(() => searchFields.join(","), [searchFields]);
 
   const togglePreset = useCallback((key: keyof typeof areaPresetIds) => {
     const ids = areaPresetIds[key];
@@ -542,6 +624,7 @@ export function SearchPage() {
 
   useEffect(() => {
     if (!dicts || !areasBundle) return;
+    if (!urlInitialized || !prefsHydrated) return;
     if (
       !initializedFromUrlRef.current &&
       urlSearchParamsHasVacancyAppFilter(new URLSearchParams(window.location.search))
@@ -551,9 +634,9 @@ export function SearchPage() {
   }, [
     dicts,
     areasBundle,
-    sfName,
-    sfCompany,
-    sfDesc,
+    urlInitialized,
+    prefsHydrated,
+    searchFieldsKey,
     selectedAreaIdsKey,
     employmentFormKey,
     experienceKey,
@@ -568,6 +651,7 @@ export function SearchPage() {
     if (!dicts || !areasBundle || initializedFromUrlRef.current) return;
     const initialParams = new URLSearchParams(window.location.search);
     const hadInitialAppFilters = urlSearchParamsHasVacancyAppFilter(initialParams);
+    initialUrlHadAppFiltersRef.current = hadInitialAppFilters;
     const parsed = parseVacancyAppSearchFromUrlSearchParams(initialParams, {
       employmentForm: allowedEmploymentForm,
       workFormat: allowedWorkFormat,
@@ -576,9 +660,7 @@ export function SearchPage() {
     initializedFromUrlRef.current = true;
     setText(parsed.text);
     setExcludedText(parsed.excludedText);
-    setSfName(parsed.searchFields.includes("name"));
-    setSfCompany(parsed.searchFields.includes("company_name"));
-    setSfDesc(parsed.searchFields.includes("description"));
+    setSearchFieldIds(vacancySearchFieldIdsFromParsed(parsed.searchFields));
     setSelectedAreaIds(parsed.areaIds);
     setRussiaAll(parsed.areaIds.has("113"));
     setEmploymentForm(parsed.employmentForm);
@@ -588,30 +670,77 @@ export function SearchPage() {
     setWithStatedSalary(parsed.withStatedSalary);
     setSalaryAmount(parsed.salaryAmount);
     setCurrency(parsed.currency_code);
-    const overrideSnapshot: Partial<SearchSnapshot> = {
-      text: parsed.text,
-      excludedText: parsed.excludedText,
-      searchFields: parsed.searchFields,
-      selectedAreaIds: parsed.areaIds,
-      employmentForm: parsed.employmentForm,
-      experience: parsed.experience,
-      workFormat: parsed.workFormat,
-      labels: parsed.labels,
-      withStatedSalary: parsed.withStatedSalary,
-      salaryAmount: parsed.salaryAmount,
-      currencyResolved: parsed.currency_code,
-    };
-    if (hadInitialAppFilters) {
-      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+    setUrlInitialized(true);
+  }, [allowedEmploymentForm, allowedExperience, allowedWorkFormat, areasBundle, dicts, ruSubjectIds]);
+
+  useEffect(() => {
+    if (!dicts || !areasBundle || !urlInitialized) return;
+
+    if (initialUrlHadAppFiltersRef.current) {
+      setPrefsHydrated(true);
+      return;
     }
+
+    if (!isSupabaseConfigured()) {
+      setPrefsHydrated(true);
+      return;
+    }
+
+    const ac = new AbortController();
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/me/search-preferences", { signal: ac.signal });
+        if (!res.ok || ac.signal.aborted) return;
+        const json = (await res.json()) as { filters?: unknown };
+        if (ac.signal.aborted) return;
+        const filters = json?.filters;
+        if (
+          filters != null &&
+          typeof filters === "object" &&
+          !Array.isArray(filters) &&
+          Object.keys(filters).length > 0
+        ) {
+          const params = parseFiltersRecordToUrlSearchParams(filters);
+          if (params && !ac.signal.aborted) {
+            const loaded = parseVacancyAppSearchFromUrlSearchParams(params, {
+              employmentForm: allowedEmploymentForm,
+              workFormat: allowedWorkFormat,
+              experience: allowedExperience,
+            });
+            setText(loaded.text);
+            setExcludedText(loaded.excludedText);
+            setSearchFieldIds(vacancySearchFieldIdsFromParsed(loaded.searchFields));
+            setSelectedAreaIds(loaded.areaIds);
+            setRussiaAll(loaded.areaIds.has("113"));
+            setEmploymentForm(loaded.employmentForm);
+            setExperience(loaded.experience);
+            setWorkFormat(loaded.workFormat);
+            setLabels(loaded.labels);
+            setWithStatedSalary(loaded.withStatedSalary);
+            setSalaryAmount(loaded.salaryAmount);
+            setCurrency(loaded.currency_code);
+          }
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        console.error("Failed to load search preferences:", e);
+      } finally {
+        if (!ac.signal.aborted) {
+          setPrefsHydrated(true);
+        }
+      }
+    })();
+
+    return () => ac.abort();
   }, [
     allowedEmploymentForm,
     allowedExperience,
     allowedWorkFormat,
     areasBundle,
     dicts,
-    ruSubjectIds,
     runSearch,
+    urlInitialized,
   ]);
 
   useEffect(() => {
@@ -629,9 +758,7 @@ export function SearchPage() {
   }, [
     text,
     excludedText,
-    sfName,
-    sfCompany,
-    sfDesc,
+    searchFieldsKey,
     selectedAreaIdsKey,
     employmentFormKey,
     experienceKey,
@@ -692,6 +819,122 @@ export function SearchPage() {
     }
   }, []);
 
+  const clearFilters = useCallback(() => {
+    setSavePrefsError(null);
+    setText("");
+    setExcludedText("");
+    setSearchFieldIds(new Set());
+    setSelectedAreaIds(new Set());
+    setRussiaAll(false);
+    setEmploymentForm(new Set());
+    setExperience(new Set());
+    setWorkFormat(new Set());
+    setLabels(new Set());
+    setWithStatedSalary(false);
+    setSalaryAmount("");
+    setCurrency("");
+    const emptyOverride: Partial<SearchSnapshot> = {
+      text: "",
+      excludedText: "",
+      searchFields: [...DEFAULT_VACANCY_SEARCH_FIELDS],
+      selectedAreaIds: new Set(),
+      employmentForm: new Set(),
+      experience: new Set(),
+      workFormat: new Set(),
+      labels: new Set(),
+      withStatedSalary: false,
+      salaryAmount: "",
+      currencyResolved: "",
+    };
+    queueMicrotask(() => void runSearch(0, false, emptyOverride));
+  }, [runSearch]);
+
+  const savePreferences = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    setSavePrefsError(null);
+    setSavePrefsBusy(true);
+    try {
+      const params = buildVacancyAppUrlSearchParams(snapshotRef.current);
+      const filters = serializeAppUrlParamsToFiltersRecord(params);
+      const res = await fetch("/api/me/search-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filters }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof raw?.error === "string" ? raw.error : `Save failed (${res.status})`;
+        throw new Error(msg);
+      }
+    } catch (e) {
+      setSavePrefsError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavePrefsBusy(false);
+    }
+  }, []);
+
+  const restorePreferences = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    setSavePrefsError(null);
+    setRestorePrefsBusy(true);
+    try {
+      const res = await fetch("/api/me/search-preferences");
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof raw?.error === "string" ? raw.error : `Load failed (${res.status})`;
+        throw new Error(msg);
+      }
+      const filters = raw?.filters;
+      if (
+        filters == null ||
+        typeof filters !== "object" ||
+        Array.isArray(filters) ||
+        Object.keys(filters as object).length === 0
+      ) {
+        throw new Error("No saved preferences");
+      }
+      const params = parseFiltersRecordToUrlSearchParams(filters);
+      if (!params) throw new Error("Invalid saved preferences");
+      const loaded = parseVacancyAppSearchFromUrlSearchParams(params, {
+        employmentForm: allowedEmploymentForm,
+        workFormat: allowedWorkFormat,
+        experience: allowedExperience,
+      });
+      setText(loaded.text);
+      setExcludedText(loaded.excludedText);
+      setSearchFieldIds(vacancySearchFieldIdsFromParsed(loaded.searchFields));
+      setSelectedAreaIds(loaded.areaIds);
+      setRussiaAll(loaded.areaIds.has("113"));
+      setEmploymentForm(loaded.employmentForm);
+      setExperience(loaded.experience);
+      setWorkFormat(loaded.workFormat);
+      setLabels(loaded.labels);
+      setWithStatedSalary(loaded.withStatedSalary);
+      setSalaryAmount(loaded.salaryAmount);
+      setCurrency(loaded.currency_code);
+      const overrideSnapshot: Partial<SearchSnapshot> = {
+        text: loaded.text,
+        excludedText: loaded.excludedText,
+        searchFields: loaded.searchFields,
+        selectedAreaIds: loaded.areaIds,
+        employmentForm: loaded.employmentForm,
+        experience: loaded.experience,
+        workFormat: loaded.workFormat,
+        labels: loaded.labels,
+        withStatedSalary: loaded.withStatedSalary,
+        salaryAmount: loaded.salaryAmount,
+        currencyResolved: loaded.currency_code,
+      };
+      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+    } catch (e) {
+      setSavePrefsError(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setRestorePrefsBusy(false);
+    }
+  }, [allowedEmploymentForm, allowedExperience, allowedWorkFormat, runSearch]);
+
   const applyImportedUrl = useCallback(() => {
     const raw = importUrl.trim();
     if (!raw) {
@@ -707,9 +950,7 @@ export function SearchPage() {
       });
       setText(parsed.text);
       setExcludedText(parsed.excludedText);
-      setSfName(parsed.searchFields.includes("name"));
-      setSfCompany(parsed.searchFields.includes("company_name"));
-      setSfDesc(parsed.searchFields.includes("description"));
+      setSearchFieldIds(vacancySearchFieldIdsFromParsed(parsed.searchFields));
       setSelectedAreaIds(parsed.areaIds);
       setRussiaAll(parsed.areaIds.has("113"));
       setEmploymentForm(parsed.employmentForm);
@@ -793,6 +1034,22 @@ export function SearchPage() {
   return (
     <div className="layout">
       <section className="panel filters">
+        <div className="filters-panel-top-actions">
+          <button type="button" className="filters-panel-mini-btn" onClick={clearFilters}>
+            Clear Filters
+          </button>
+          {isSupabaseConfigured() ? (
+            <button
+              type="button"
+              className="filters-panel-mini-btn"
+              disabled={restorePrefsBusy}
+              title="Replaces all filters with your saved search preferences (what you last saved with Save preferences)."
+              onClick={() => void restorePreferences()}
+            >
+              {restorePrefsBusy ? "…" : "Load preferences"}
+            </button>
+          ) : null}
+        </div>
         <div className="filters-stack">
           <div className="field field--text-search-block">
             <label>
@@ -807,17 +1064,6 @@ export function SearchPage() {
                 placeholder="e.g. React, Developer"
               />
             </label>
-            <div className="search-fields-inline">
-              <label>
-                <input type="checkbox" checked={sfName} onChange={(e) => setSfName(e.target.checked)} /> name
-              </label>
-              <label>
-                <input type="checkbox" checked={sfCompany} onChange={(e) => setSfCompany(e.target.checked)} /> company
-              </label>
-              <label>
-                <input type="checkbox" checked={sfDesc} onChange={(e) => setSfDesc(e.target.checked)} /> description
-              </label>
-            </div>
             <div className="text-search-block__exclude">
               <label>
                 <span>Exclude words</span>
@@ -832,6 +1078,16 @@ export function SearchPage() {
                   autoComplete="off"
                 />
               </label>
+            </div>
+            <div className="filters-stack__job-fields-row filters-stack__job-fields-row--experience">
+              <MultiSelectChips
+                label="Search in"
+                options={[...SEARCH_FIELD_OPTIONS]}
+                selected={searchFieldIds}
+                onChange={setSearchFieldIds}
+                placeholder="Any search field"
+                clearable
+              />
             </div>
           </div>
 
@@ -1042,8 +1298,25 @@ export function SearchPage() {
               title={copyDone ? "Copied" : "Copy search link"}
               onClick={() => void copySearchLink()}
             >
-              {copyDone ? "✓" : "🔗"}
+              <span className="filters-actions-bar__btn-icon" aria-hidden>
+                {copyDone ? <FiltersBarIconCheck /> : <FiltersBarIconLink />}
+              </span>
             </button>
+            {isSupabaseConfigured() ? (
+              <>
+                <button
+                  type="button"
+                  className="secondary filters-actions-bar__btn filters-actions-bar__save-col"
+                  disabled={savePrefsBusy}
+                  onClick={() => void savePreferences()}
+                >
+                  <span className="filters-actions-bar__btn-icon" aria-hidden>
+                    <FiltersBarIconSave />
+                  </span>
+                  <span>{savePrefsBusy ? "Saving…" : "Save preferences"}</span>
+                </button>
+              </>
+            ) : null}
           </div>
 
           <div className="field filters-stack__vacancy-labels">
@@ -1069,6 +1342,7 @@ export function SearchPage() {
 
         <div className="filters-after">
           {searchError ? <p className="error">{searchError}</p> : null}
+          {savePrefsError ? <p className="error small">{savePrefsError}</p> : null}
         </div>
       </section>
       {isImportOpen ? (
