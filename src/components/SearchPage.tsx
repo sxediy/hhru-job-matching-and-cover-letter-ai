@@ -146,16 +146,16 @@ function FiltersBarIconImport() {
   );
 }
 
-/** Compact hh.ru-style mark (red tile + “hh”) for the “Open in HH” action */
+/** Compact hh.ru-style mark (red tile + “hh”) for the “Open in HH” action — fills tuned in CSS */
 function FiltersBarIconHh() {
   return (
     <svg className="filters-actions-bar__btn-svg" viewBox="0 0 32 32" width={18} height={18} aria-hidden>
-      <rect width="32" height="32" rx="7" fill="#d6001c" />
+      <rect className="filters-actions-bar__hh-mark-bg" width="32" height="32" rx="7" />
       <text
+        className="filters-actions-bar__hh-mark-text"
         x="16"
         y="21"
         textAnchor="middle"
-        fill="#ffffff"
         fontWeight="700"
         fontSize="13"
         fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif"
@@ -222,6 +222,49 @@ function FiltersBarIconCheck() {
       aria-hidden
     >
       <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+/** Restore saved search preferences from the server (preset list cue) */
+function FiltersBarIconLoad() {
+  return (
+    <svg
+      className="filters-actions-bar__btn-svg filters-actions-bar__btn-svg--stroke"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 5v14" />
+      <path d="M9 7h11" />
+      <path d="M9 12h11" />
+      <path d="M9 17h8" />
+    </svg>
+  );
+}
+
+function FiltersPanelIconClear() {
+  return (
+    <svg
+      className="filters-panel-clear-btn__svg"
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   );
 }
@@ -1035,20 +1078,15 @@ export function SearchPage() {
     <div className="layout">
       <section className="panel filters">
         <div className="filters-panel-top-actions">
-          <button type="button" className="filters-panel-mini-btn" onClick={clearFilters}>
-            Clear Filters
+          <button
+            type="button"
+            className="filters-panel-clear-btn"
+            onClick={clearFilters}
+            aria-label="Clear all filters"
+            title="Clear all filters"
+          >
+            <FiltersPanelIconClear />
           </button>
-          {isSupabaseConfigured() ? (
-            <button
-              type="button"
-              className="filters-panel-mini-btn"
-              disabled={restorePrefsBusy}
-              title="Replaces all filters with your saved search preferences (what you last saved with Save preferences)."
-              onClick={() => void restorePreferences()}
-            >
-              {restorePrefsBusy ? "…" : "Load preferences"}
-            </button>
-          ) : null}
         </div>
         <div className="filters-stack">
           <div className="field field--text-search-block">
@@ -1303,10 +1341,22 @@ export function SearchPage() {
               </span>
             </button>
             {isSupabaseConfigured() ? (
-              <>
+              <div className="filters-actions-bar__prefs-row">
                 <button
                   type="button"
-                  className="secondary filters-actions-bar__btn filters-actions-bar__save-col"
+                  className="secondary filters-actions-bar__btn filters-actions-bar__prefs-btn"
+                  disabled={restorePrefsBusy}
+                  title="Replaces all filters with your saved search preferences (what you last saved with Save preferences)."
+                  onClick={() => void restorePreferences()}
+                >
+                  <span className="filters-actions-bar__btn-icon" aria-hidden>
+                    <FiltersBarIconLoad />
+                  </span>
+                  <span>{restorePrefsBusy ? "Loading…" : "Load preferences"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="secondary filters-actions-bar__btn filters-actions-bar__prefs-btn"
                   disabled={savePrefsBusy}
                   onClick={() => void savePreferences()}
                 >
@@ -1315,7 +1365,7 @@ export function SearchPage() {
                   </span>
                   <span>{savePrefsBusy ? "Saving…" : "Save preferences"}</span>
                 </button>
-              </>
+              </div>
             ) : null}
           </div>
 
@@ -1351,20 +1401,18 @@ export function SearchPage() {
             className="modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Import from HH"
+            aria-labelledby="import-hh-dialog-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>Import from HH</h2>
-            <label>
-              <span>HH URL</span>
-              <textarea
-                value={importUrl}
-                onChange={(e) => setImportUrl(e.target.value)}
-                placeholder="https://hh.ru/search/vacancy?..."
-                rows={3}
-                autoFocus
-              />
-            </label>
+            <h2 id="import-hh-dialog-title">Import from HH</h2>
+            <textarea
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              placeholder="https://hh.ru/search/vacancy?..."
+              rows={3}
+              autoFocus
+              aria-label="Paste hh.ru search URL"
+            />
             {importError ? <p className="error small">{importError}</p> : null}
             <div className="modal__actions">
               <button type="button" className="secondary" onClick={() => setIsImportOpen(false)}>

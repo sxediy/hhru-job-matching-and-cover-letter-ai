@@ -109,7 +109,7 @@ code {
   margin-bottom: 0;
 }
 
-/* Restore + Clear: compact outline like action bar (muted + border), panel corner */
+/* Clear all filters: icon control, top-right of panel */
 .panel.filters > .filters-panel-top-actions {
   position: absolute;
   /* Tight to panel top inside padding */
@@ -119,42 +119,46 @@ code {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.4rem;
 }
 
-.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn {
+.panel.filters > .filters-panel-top-actions > .filters-panel-clear-btn {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin: 0;
-  min-width: 9rem;
-  padding: 0.32rem 1rem;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
   font: inherit;
-  font-size: 0.74rem;
-  font-weight: 500;
-  line-height: 1.25;
+  line-height: 0;
   color: var(--muted);
   cursor: pointer;
-  white-space: nowrap;
 }
 
-.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:hover:not(:disabled) {
-  color: var(--text);
+.panel.filters > .filters-panel-top-actions > .filters-panel-clear-btn:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 64%, var(--muted));
   border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
 }
 
-.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:focus-visible {
+.panel.filters > .filters-panel-top-actions > .filters-panel-clear-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
 }
 
-.panel.filters > .filters-panel-top-actions > .filters-panel-mini-btn:disabled {
+.panel.filters > .filters-panel-top-actions > .filters-panel-clear-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.filters-panel-clear-btn__svg {
+  display: block;
+  color: inherit;
 }
 
 .panel.filters .filters-stack {
@@ -258,19 +262,54 @@ code {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, var(--border))
+    color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__inner::-webkit-scrollbar,
+.panel.filters .filters-stack__job-fields .multi-select-chips__inner::-webkit-scrollbar {
+  height: 7px;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__inner::-webkit-scrollbar-track,
+.panel.filters .filters-stack__job-fields .multi-select-chips__inner::-webkit-scrollbar-track {
+  margin: 0 0.2rem;
+  background: transparent;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__inner::-webkit-scrollbar-thumb,
+.panel.filters .filters-stack__job-fields .multi-select-chips__inner::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--muted) 40%, var(--border));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__inner::-webkit-scrollbar-thumb:hover,
+.panel.filters .filters-stack__job-fields .multi-select-chips__inner::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 52%, var(--accent-dim));
 }
 
 .panel.filters .field--text-search-block .multi-select-chips__pill,
 .panel.filters .filters-stack__job-fields .multi-select-chips__pill {
-  padding: 0.04rem 0.36rem;
+  padding: 0.11rem 0.4rem;
   font-size: 0.72rem;
-  line-height: 1.15;
+  line-height: 1.22;
+  min-height: 1.35rem;
+  color: color-mix(in srgb, var(--text) 70%, var(--muted));
 }
 
+/* Same type rhythm as text inputs below (Keywords / Salary value) */
 .panel.filters .field--text-search-block .multi-select-chips__placeholder,
 .panel.filters .filters-stack__job-fields .multi-select-chips__placeholder {
-  font-size: inherit;
+  font-size: 1rem;
   line-height: 1.2;
+  font-weight: 500;
+}
+
+.panel.filters .field--text-search-block .multi-select-chips__trigger,
+.panel.filters .filters-stack__job-fields .multi-select-chips__trigger {
+  color: var(--muted);
 }
 
 .panel.filters .field--text-search-block .search-fields-inline {
@@ -333,12 +372,56 @@ code {
   cursor: pointer;
 }
 
-/* Filter panel: one compact checkbox size (same ballpark as country/region lists) */
+/* Filter panel: custom box — unchecked = field fill; checked = same wash as preset chip + dark tick */
 .panel.filters input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
   width: 0.8125rem;
   height: 0.8125rem;
   flex-shrink: 0;
   cursor: pointer;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background-color: color-mix(in srgb, var(--panel) 85%, var(--bg));
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 0.58rem 0.58rem;
+  vertical-align: middle;
+}
+
+.panel.filters input[type="checkbox"]:checked {
+  background-color: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  /* Single edge — no inset ring (was doubling with border) */
+  border: 1px solid color-mix(in srgb, var(--accent-dim) 42%, var(--border));
+  box-shadow: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23141820' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M2.5 6.5 5 9 9.5 3.5'/%3E%3C/svg%3E");
+}
+
+.panel.filters input[type="checkbox"]:not(:checked) {
+  background-image: none;
+}
+
+/* Hover: те же акцентные бордеры, что у пресет-чипов */
+.panel.filters input[type="checkbox"]:hover:not(:disabled):not(:checked) {
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
+.panel.filters input[type="checkbox"]:checked:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent-dim) 85%, var(--border));
+  background-color: color-mix(in srgb, var(--accent) 30%, var(--panel));
+}
+
+.panel.filters input[type="checkbox"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.panel.filters input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .panel.filters .check-row--compact input[type="checkbox"] {
@@ -398,9 +481,17 @@ code {
   align-items: stretch;
 }
 
-/* Second row: Save spans full bar width */
-.panel.filters .filters-actions-bar > .filters-actions-bar__save-col {
+/* Second row: Load + Save preferences */
+.panel.filters .filters-actions-bar > .filters-actions-bar__prefs-row {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+.panel.filters .filters-actions-bar > .filters-actions-bar__prefs-row > .filters-actions-bar__prefs-btn {
+  min-width: 0;
 }
 
 .filters-actions-bar__btn,
@@ -430,6 +521,15 @@ code {
   color: inherit;
 }
 
+/* Softer hh tile: pull red toward UI border, “hh” toward muted (still readable on the tile) */
+.filters-actions-bar__hh-mark-bg {
+  fill: color-mix(in srgb, #d6001c 58%, var(--border));
+}
+
+.filters-actions-bar__hh-mark-text {
+  fill: color-mix(in srgb, #ffffff 72%, var(--muted));
+}
+
 .filters-actions-bar__copy {
   min-width: 2.45rem;
   padding-inline: 0.65rem !important;
@@ -445,20 +545,35 @@ code {
   border-color: var(--border);
 }
 
+/* Load / Save: same label as Import; base border = subdued blue (Import row uses this on hover only) */
+.panel.filters .filters-actions-bar > .filters-actions-bar__prefs-row > button.secondary.filters-actions-bar__btn {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
 .panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__btn:hover:not(:disabled),
-.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:hover:not(:disabled) {
-  color: var(--text);
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:hover:not(:disabled),
+.panel.filters
+  .filters-actions-bar
+  > .filters-actions-bar__prefs-row
+  > button.secondary.filters-actions-bar__btn:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 64%, var(--muted));
   border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
 }
 
 .panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__btn:focus-visible,
-.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:focus-visible {
+.panel.filters .filters-actions-bar > button.secondary.filters-actions-bar__copy:focus-visible,
+.panel.filters .filters-actions-bar > .filters-actions-bar__prefs-row > button.secondary.filters-actions-bar__btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
   .filters-actions-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel.filters .filters-actions-bar > .filters-actions-bar__prefs-row {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -481,6 +596,44 @@ input:not([type]) {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 85%, var(--bg));
   color: var(--text);
+}
+
+/* Keywords / Exclude only — not `label > input` in Search-in multiselect rows (checkboxes) */
+.panel.filters .field--text-search-block label > input:is([type="text"], [type="search"], :not([type])):focus {
+  outline: none;
+}
+
+.panel.filters .field--text-search-block label > input:is([type="text"], [type="search"], :not([type])):focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 62%, var(--muted) 38%);
+}
+
+/* Keywords / Exclude: 32px row like multiselect triggers; typography like Any search field */
+.panel.filters .field--text-search-block label > input:is([type="text"], [type="search"], :not([type])) {
+  box-sizing: border-box;
+  min-height: 32px;
+  height: 32px;
+  max-height: 32px;
+  padding: 0.28rem 0.55rem;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.2;
+  font-weight: 500;
+}
+
+/* Salary amount: same type color/weight; fills 32px row (padding 0 vertical — parent centers) */
+.panel.filters .salary-currency-input__amount {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.2;
+  font-weight: 500;
+  padding: 0 0.55rem;
+}
+
+.panel.filters .field--text-search-block label > input:is([type="text"], [type="search"], :not([type]))::placeholder {
+  color: color-mix(in srgb, var(--muted) 62%, var(--border));
+  opacity: 1;
 }
 
 select {
@@ -585,14 +738,14 @@ fieldset legend {
 .panel.filters .chips .chip--on {
   background: color-mix(in srgb, var(--accent) 22%, var(--panel));
   border-color: color-mix(in srgb, var(--accent-dim) 75%, var(--border));
-  color: var(--text);
+  color: color-mix(in srgb, var(--text) 68%, var(--muted));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-dim) 35%, transparent);
 }
 
 .panel.filters .chips .chip--on:hover {
   background: color-mix(in srgb, var(--accent) 30%, var(--panel));
   border-color: color-mix(in srgb, var(--accent-dim) 85%, var(--border));
-  color: var(--text);
+  color: color-mix(in srgb, var(--text) 74%, var(--muted));
 }
 
 .panel.filters .chips .chip--partial {
@@ -664,11 +817,39 @@ fieldset legend {
   overflow: auto;
   margin-top: 0.5rem;
   padding-right: 0.25rem;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, var(--border))
+    color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.country-scroll::-webkit-scrollbar,
+.ru-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.country-scroll::-webkit-scrollbar-track,
+.ru-scroll::-webkit-scrollbar-track {
+  margin: 0.2rem 0;
+  background: transparent;
+}
+
+.country-scroll::-webkit-scrollbar-thumb,
+.ru-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--muted) 40%, var(--border));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.country-scroll::-webkit-scrollbar-thumb:hover,
+.ru-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 52%, var(--accent-dim));
 }
 
 .panel.filters .country-scroll .check-row,
 .panel.filters .ru-scroll .check-row {
   color: var(--muted);
+  cursor: pointer;
 }
 
 .ru-scroll {
@@ -692,6 +873,39 @@ fieldset legend {
 
 .country-search-wrap:not(:has(.country-search-wrap__clear)) .country-search-wrap__input {
   padding-right: 0.55rem;
+}
+
+/* All countries — search: same size / weight / color / placeholder as Keywords & Salary */
+.panel.filters .country-search-wrap__input {
+  box-sizing: border-box;
+  min-height: 32px;
+  height: 32px;
+  max-height: 32px;
+  padding: 0.28rem 1.85rem 0.28rem 0.55rem;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.2;
+  font-weight: 500;
+}
+
+.panel.filters .country-search-wrap:not(:has(.country-search-wrap__clear)) .country-search-wrap__input {
+  padding-right: 0.55rem;
+}
+
+.panel.filters .country-search-wrap__input::placeholder {
+  color: color-mix(in srgb, var(--muted) 62%, var(--border));
+  opacity: 1;
+}
+
+/* All countries → Search country: same quiet focus as Keywords */
+.panel.filters .country-search-wrap__input:focus {
+  outline: none;
+}
+
+.panel.filters .country-search-wrap__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 62%, var(--muted) 38%);
 }
 
 .country-search-wrap__clear {
@@ -736,7 +950,7 @@ fieldset legend {
 }
 
 .collapse-toggle:hover {
-  color: var(--text);
+  color: color-mix(in srgb, var(--text) 64%, var(--muted));
 }
 
 .collapse-toggle__caret {
@@ -782,12 +996,13 @@ fieldset legend {
 }
 
 .multi-select-chips__trigger:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: none;
 }
 
+/* Open state: same border as closed — only the list opens, no chrome change */
 .multi-select-chips__trigger--open {
-  border-color: var(--accent-dim);
+  border-color: var(--border);
 }
 
 .multi-select-chips__inner {
@@ -848,9 +1063,31 @@ fieldset legend {
 }
 
 .multi-select-chips__pill-x {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-weight: 700;
-  opacity: 0.85;
   line-height: 1;
+  opacity: 0.85;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.multi-select-chips__pill-x:hover {
+  opacity: 1;
+}
+
+.multi-select-chips__pill-x:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 
 .multi-select-chips__dropdown {
@@ -877,6 +1114,14 @@ fieldset legend {
   cursor: pointer;
 }
 
+.multi-select-chips__dropdown .multi-select-chips__row {
+  color: var(--muted);
+}
+
+.multi-select-chips__dropdown .multi-select-chips__row:hover {
+  color: color-mix(in srgb, var(--text) 58%, var(--muted));
+}
+
 .multi-select-chips__row input[type="checkbox"] {
   flex-shrink: 0;
 }
@@ -896,12 +1141,23 @@ fieldset legend {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 85%, var(--bg));
-  overflow: hidden;
+  /* Dropdown extends below; native select could use hidden — custom list needs visible */
+  overflow: visible;
 }
 
+.panel.filters .salary-currency-input {
+  box-sizing: border-box;
+  min-height: 32px;
+  height: 32px;
+  max-height: 32px;
+  align-items: center;
+}
+
+/* Same quiet focus as Keywords: outer border only, no accent ring */
 .salary-currency-input:focus-within {
-  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 62%, var(--muted) 38%);
 }
 
 .salary-currency-input__amount {
@@ -913,25 +1169,140 @@ fieldset legend {
   background: transparent !important;
 }
 
-.salary-currency-input__currency {
+.panel.filters .salary-currency-input__amount::placeholder {
+  color: color-mix(in srgb, var(--muted) 62%, var(--border));
+  opacity: 1;
+}
+
+.panel.filters .salary-currency-input__currency-trigger {
+  font-size: 1rem;
+  font-weight: 500;
+  min-height: 100%;
+  padding-top: 0;
+  padding-bottom: 0;
+  color: var(--muted);
+}
+
+.panel.filters .salary-currency-input__currency-trigger:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 52%, var(--muted));
+}
+
+.salary-currency-input__amount:focus,
+.salary-currency-input__amount:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.salary-currency-input__currency-wrap {
+  position: relative;
   flex: 0 0 auto;
-  width: auto !important;
   min-width: 6.5rem;
   max-width: min(42%, 11rem);
-  border: none !important;
-  border-radius: 0 !important;
-  border-left: 1px solid color-mix(in srgb, var(--border) 65%, transparent) !important;
-  background: transparent !important;
+  align-self: stretch;
+  display: flex;
+  border-left: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.salary-currency-input__currency-trigger {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
   cursor: pointer;
+  color: color-mix(in srgb, var(--text) 44%, var(--muted));
 }
 
-.panel.filters .salary-currency-input__currency {
+.salary-currency-input__currency-trigger:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 58%, var(--muted));
+}
+
+.salary-currency-input__currency-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
   color: var(--muted);
 }
 
-.panel.filters .salary-currency-input__currency option {
-  color: var(--muted);
-  background-color: var(--panel);
+.salary-currency-input__currency-trigger:focus {
+  outline: none;
+}
+
+.salary-currency-input__currency-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.salary-currency-input__currency-trigger--open {
+  box-shadow: none;
+}
+
+.salary-currency-input__currency-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.salary-currency-input__trigger-caret {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: color-mix(in srgb, var(--muted) 94%, var(--text));
+}
+
+.salary-currency-input__dropdown {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  left: 0;
+  min-width: 100%;
+  margin-top: 0.25rem;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 55%, #000);
+}
+
+.salary-currency-input__dropdown-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.32rem 0.25rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text) 28%, var(--muted));
+}
+
+.salary-currency-input__dropdown-option:hover {
+  color: color-mix(in srgb, var(--text) 48%, var(--muted));
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.salary-currency-input__dropdown-option--selected {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 38%, var(--muted));
+}
+
+.salary-currency-input__dropdown-option--selected:hover {
+  color: color-mix(in srgb, var(--text) 54%, var(--muted));
 }
 
 .actions {
@@ -995,13 +1366,79 @@ button.secondary:disabled {
 .modal h2 {
   margin: 0 0 0.85rem;
   font-size: 1.05rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 54%, var(--muted));
+}
+
+.modal textarea {
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
+}
+
+.modal textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 92%, var(--text));
+  opacity: 1;
+}
+
+.modal textarea:focus {
+  outline: none;
+}
+
+.modal textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 62%, var(--muted) 38%);
 }
 
 .modal__actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
-  margin-top: 0.9rem;
+  align-items: stretch;
+  margin-top: 0.85rem;
+  margin-left: -1.1rem;
+  margin-right: -1.1rem;
+  margin-bottom: -1rem;
+  padding: 0.75rem 1.1rem 1rem;
+  background: color-mix(in srgb, var(--panel) 92%, var(--bg));
+}
+
+.modal__actions button {
+  margin-top: 0 !important;
+}
+
+/* Same muted chrome as vacancy filter action bar */
+.modal__actions button.secondary {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.modal__actions button.secondary:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 64%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+}
+
+.modal__actions button.secondary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* Apply: subdued blue fill like selected preset chips in filters */
+.modal__actions button.primary {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--accent-dim) 75%, var(--border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-dim) 35%, transparent);
+}
+
+.modal__actions button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: color-mix(in srgb, var(--text) 64%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 85%, var(--border));
+}
+
+.modal__actions button.primary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .vacancy-list {

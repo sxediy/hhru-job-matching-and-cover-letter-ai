@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export type SalaryCurrencyItem = { code: string; name: string; in_use?: boolean };
 
@@ -79,7 +79,50 @@ export function SalaryCurrencyInput({
   label = "Salary",
   placeholder = "Optional",
 }: Props) {
+  const listboxId = useId();
   const displayValue = useMemo(() => formatSalaryReadable(amount), [amount]);
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const currencyWrapRef = useRef<HTMLDivElement>(null);
+
+  const triggerLabel = useMemo(() => {
+    if (currencies.length === 0) return "—";
+    if (currency && currencies.some((c) => c.code === currency)) return currency;
+    return currencies[0]?.code ?? "—";
+  }, [currencies, currency]);
+
+  const toggleCurrencyOpen = useCallback(() => {
+    if (currencies.length === 0) return;
+    setCurrencyOpen((o) => !o);
+  }, [currencies.length]);
+
+  const onTriggerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleCurrencyOpen();
+      }
+    },
+    [toggleCurrencyOpen],
+  );
+
+  useEffect(() => {
+    if (!currencyOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = currencyWrapRef.current;
+      if (el && !el.contains(e.target as Node)) setCurrencyOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [currencyOpen]);
+
+  useEffect(() => {
+    if (!currencyOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCurrencyOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [currencyOpen]);
 
   const onAmountInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,22 +147,44 @@ export function SalaryCurrencyInput({
           onChange={onAmountInputChange}
           onBlur={onAmountBlur}
         />
-        <select
-          className="salary-currency-input__currency"
-          value={currency}
-          onChange={(e) => onCurrencyChange(e.target.value)}
-          aria-label="Currency"
-        >
-          {currencies.length === 0 ? (
-            <option value="">—</option>
-          ) : (
-            currencies.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code}
-              </option>
-            ))
-          )}
-        </select>
+        <div className="salary-currency-input__currency-wrap" ref={currencyWrapRef}>
+          <button
+            type="button"
+            className={`salary-currency-input__currency-trigger${currencyOpen ? " salary-currency-input__currency-trigger--open" : ""}`}
+            disabled={currencies.length === 0}
+            aria-expanded={currencyOpen}
+            aria-haspopup="listbox"
+            aria-controls={listboxId}
+            aria-label="Currency"
+            onClick={toggleCurrencyOpen}
+            onKeyDown={onTriggerKeyDown}
+          >
+            <span className="salary-currency-input__currency-code">{triggerLabel}</span>
+            <span className="salary-currency-input__trigger-caret" aria-hidden>
+              {currencyOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {currencyOpen && currencies.length > 0 ? (
+            <div id={listboxId} role="listbox" className="salary-currency-input__dropdown">
+              {currencies.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  role="option"
+                  aria-selected={currency === c.code}
+                  className={`salary-currency-input__dropdown-option${currency === c.code ? " salary-currency-input__dropdown-option--selected" : ""}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onCurrencyChange(c.code);
+                    setCurrencyOpen(false);
+                  }}
+                >
+                  {c.code}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
     </label>
   );
