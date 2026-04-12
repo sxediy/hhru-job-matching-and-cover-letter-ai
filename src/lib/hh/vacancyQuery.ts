@@ -8,7 +8,7 @@ export function buildVacancySearchParams(payload: VacancySearchPayload): URLSear
   appendVacancySearchFiltersToHhApiParams(p, filters);
 
   p.set("page", String(Math.max(0, page ?? 0)));
-  p.set("per_page", String(Math.min(100, Math.max(1, perPage ?? 20))));
+  p.set("per_page", String(Math.min(100, Math.max(1, perPage ?? 50))));
   // Match hh.ru web query profile closer for comparable result sets.
   p.set("enable_snippets", "false");
 

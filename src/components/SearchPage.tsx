@@ -344,6 +344,153 @@ function FiltersPanelIconClear() {
   );
 }
 
+function IconChevronResults({ dir }: { dir: "left" | "right" }) {
+  const d = dir === "left" ? "M15 6 9 12l6 6" : "M9 6l6 6-6 6";
+  return (
+    <svg
+      className="results-pagination__chevron-svg"
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+type ResultsPaginationBarProps = {
+  searching: boolean;
+  page: number;
+  pages: number;
+  onPrev: () => void;
+  onNext: () => void;
+};
+
+type ResultsPaginationNumericProps = {
+  searching: boolean;
+  page: number;
+  pages: number;
+  onGoToPage: (pageZeroBased: number) => void;
+};
+
+/** 1-based page labels for the bar; «…» when many pages. */
+function buildResultsPaginationPages(pageZero: number, totalPages: number): Array<number | "ellipsis"> {
+  if (totalPages <= 11) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const curr = pageZero + 1;
+  const last = totalPages;
+  const out: Array<number | "ellipsis"> = [];
+  const pushEllipsis = () => {
+    if (out.length && out[out.length - 1] === "ellipsis") return;
+    out.push("ellipsis");
+  };
+  if (curr <= 5) {
+    for (let p = 1; p <= 5; p++) out.push(p);
+    pushEllipsis();
+    out.push(last);
+  } else if (curr >= last - 4) {
+    out.push(1);
+    pushEllipsis();
+    for (let p = last - 4; p <= last; p++) out.push(p);
+  } else {
+    out.push(1);
+    pushEllipsis();
+    for (let p = curr - 1; p <= curr + 1; p++) out.push(p);
+    pushEllipsis();
+    out.push(last);
+  }
+  return out;
+}
+
+function ResultsPaginationCompact({ searching, page, pages, onPrev, onNext }: ResultsPaginationBarProps) {
+  return (
+    <nav
+      className="results-pagination results-pagination--compact"
+      aria-label={`Страницы результатов, страница ${page + 1} из ${pages}`}
+    >
+      <button
+        type="button"
+        className="results-pagination__arrow"
+        disabled={searching || page <= 0}
+        onClick={onPrev}
+        aria-label="Предыдущая страница"
+      >
+        <IconChevronResults dir="left" />
+      </button>
+      <span className="results-pagination__compact-page muted small" aria-hidden>
+        {page + 1}/{pages}
+      </span>
+      <button
+        type="button"
+        className="results-pagination__arrow"
+        disabled={searching || page + 1 >= pages}
+        onClick={onNext}
+        aria-label="Следующая страница"
+      >
+        <IconChevronResults dir="right" />
+      </button>
+    </nav>
+  );
+}
+
+function ResultsPaginationNumeric({ searching, page, pages, onGoToPage }: ResultsPaginationNumericProps) {
+  const pageItems = buildResultsPaginationPages(page, pages);
+  return (
+    <nav
+      className="results-pagination results-pagination--numbered"
+      aria-label={`Страницы результатов, страница ${page + 1} из ${pages}`}
+    >
+      <button
+        type="button"
+        className="results-pagination__arrow"
+        disabled={searching || page <= 0}
+        onClick={() => onGoToPage(page - 1)}
+        aria-label="Предыдущая страница"
+      >
+        <IconChevronResults dir="left" />
+      </button>
+      <ul className="results-pagination__pages">
+        {pageItems.map((item, i) =>
+          item === "ellipsis" ? (
+            <li key={`ellipsis-${i}`} className="results-pagination__ellipsis" aria-hidden>
+              …
+            </li>
+          ) : (
+            <li key={item}>
+              <button
+                type="button"
+                className={`results-pagination__page${page + 1 === item ? " results-pagination__page--current" : ""}`}
+                disabled={searching || page + 1 === item}
+                onClick={() => onGoToPage(item - 1)}
+                aria-label={`Страница ${item}`}
+                aria-current={page + 1 === item ? "page" : undefined}
+              >
+                {item}
+              </button>
+            </li>
+          ),
+        )}
+      </ul>
+      <button
+        type="button"
+        className="results-pagination__arrow"
+        disabled={searching || page + 1 >= pages}
+        onClick={() => onGoToPage(page + 1)}
+        aria-label="Следующая страница"
+      >
+        <IconChevronResults dir="right" />
+      </button>
+    </nav>
+  );
+}
+
 function clearPresetChipTooltipNudges(root: HTMLElement) {
   root.querySelectorAll("button.chip[data-tooltip]").forEach((el) => {
     (el as HTMLElement).style.removeProperty("--chip-tooltip-nudge");
@@ -394,6 +541,9 @@ export function SearchPage() {
   const [copyDone, setCopyDone] = useState(false);
 
   const [page, setPage] = useState(0);
+  /** Пока идёт запрос вакансий — подсветка пагинации следует сюда, не ждёт setPage из ответа. */
+  const [pendingResultsPage, setPendingResultsPage] = useState<number | null>(null);
+  const resultsPageForUi = pendingResultsPage ?? page;
   const [items, setItems] = useState<VacancyItem[]>([]);
   const [found, setFound] = useState<number | null>(null);
   const [pages, setPages] = useState<number | null>(null);
@@ -417,6 +567,7 @@ export function SearchPage() {
   const countryScrollRef = useRef<HTMLDivElement>(null);
   const ruScrollRef = useRef<HTMLDivElement>(null);
   const presetChipsStackRef = useRef<HTMLDivElement>(null);
+  const resultsSectionRef = useRef<HTMLElement>(null);
   const initializedFromUrlRef = useRef(false);
   const initialUrlHadAppFiltersRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
@@ -694,6 +845,22 @@ export function SearchPage() {
     setRussiaAll(false);
   }, []);
 
+  /** Включить все чипы пресетов регионов (объединение id; Россия — 113; Non-preset — orphan 1001). */
+  const selectAllPresetRegions = useCallback(() => {
+    setRussiaAll(true);
+    setSelectedAreaIds((prev) => {
+      const next = new Set(prev);
+      for (const key of Object.keys(areaPresetIds) as (keyof typeof areaPresetIds)[]) {
+        for (const id of areaPresetIds[key]) next.add(id);
+      }
+      next.delete("1001");
+      for (const id of orphan1001AreaIds) next.add(id);
+      for (const r of ruSubjects) next.delete(r.id);
+      next.add("113");
+      return next;
+    });
+  }, [orphan1001AreaIds, ruSubjects]);
+
   const hasRegionSelection = selectedAreaIds.size > 0;
 
   const toggleAreaId = useCallback(
@@ -808,7 +975,7 @@ export function SearchPage() {
     currencyResolved,
   };
 
-  const runSearch = useCallback(async (nextPage: number, append: boolean, overrides?: Partial<SearchSnapshot>) => {
+  const runSearch = useCallback(async (nextPage: number, overrides?: Partial<SearchSnapshot>) => {
     const s = { ...snapshotRef.current, ...overrides };
     const salaryNum = s.salaryAmount === "" ? null : Number(s.salaryAmount);
     const salaryValid =
@@ -824,6 +991,7 @@ export function SearchPage() {
     }
     const reqId = ++searchRequestIdRef.current;
     setSearchError(null);
+    setPendingResultsPage(nextPage);
     setSearching(true);
     try {
       const areaIds = [...s.selectedAreaIds];
@@ -846,7 +1014,7 @@ export function SearchPage() {
         salary: hasSalary ? salaryNum : undefined,
         currency_code: hasSalary ? s.currencyResolved : undefined,
         page: nextPage,
-        perPage: 20,
+        perPage: 50,
       };
       const res = await fetch("/api/hh/vacancies", {
         method: "POST",
@@ -868,7 +1036,7 @@ export function SearchPage() {
       setFound(typeof raw.found === "number" ? raw.found : null);
       setPages(typeof raw.pages === "number" ? raw.pages : null);
       setPage(nextPage);
-      setItems((prev) => (append ? [...prev, ...nextItems] : nextItems));
+      setItems(nextItems);
     } catch (e) {
       if (reqId === searchRequestIdRef.current) {
         setSearchError(e instanceof Error ? e.message : "Ошибка поиска");
@@ -876,9 +1044,25 @@ export function SearchPage() {
     } finally {
       if (reqId === searchRequestIdRef.current) {
         setSearching(false);
+        setPendingResultsPage(null);
       }
     }
   }, []);
+
+  const scrollResultsIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      resultsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const goToResultsPage = useCallback(
+    (nextPage: number) => {
+      void runSearch(nextPage).then(() => {
+        scrollResultsIntoView();
+      });
+    },
+    [runSearch, scrollResultsIntoView],
+  );
 
   useEffect(() => {
     if (!dicts || !areasBundle) return;
@@ -888,7 +1072,7 @@ export function SearchPage() {
       urlSearchParamsHasVacancyAppFilter(new URLSearchParams(window.location.search))
     )
       return;
-    void runSearch(0, false);
+    void runSearch(0);
   }, [
     dicts,
     areasBundle,
@@ -1104,7 +1288,7 @@ export function SearchPage() {
       salaryAmount: "",
       currencyResolved: "",
     };
-    queueMicrotask(() => void runSearch(0, false, emptyOverride));
+    queueMicrotask(() => void runSearch(0, emptyOverride));
   }, [runSearch]);
 
   const savePreferences = useCallback(async () => {
@@ -1185,7 +1369,7 @@ export function SearchPage() {
         salaryAmount: loaded.salaryAmount,
         currencyResolved: loaded.currency_code,
       };
-      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+      queueMicrotask(() => void runSearch(0, overrideSnapshot));
     } catch (e) {
       setSavePrefsError(e instanceof Error ? e.message : "Restore failed");
     } finally {
@@ -1233,7 +1417,7 @@ export function SearchPage() {
         salaryAmount: parsed.salaryAmount,
         currencyResolved: parsed.currency_code,
       };
-      queueMicrotask(() => void runSearch(0, false, overrideSnapshot));
+      queueMicrotask(() => void runSearch(0, overrideSnapshot));
     } catch {
       setImportError("Invalid URL");
     }
@@ -1289,6 +1473,9 @@ export function SearchPage() {
     return <p className="muted">Loading dictionaries…</p>;
   }
 
+  const showResultsPagination =
+    found != null && found > 0 && pages != null && pages > 1;
+
   return (
     <div className="layout">
       <section className="panel filters">
@@ -1312,7 +1499,7 @@ export function SearchPage() {
                 onChange={(e) => setText(e.target.value)}
                 onBlur={(e) => {
                   const v = e.currentTarget.value;
-                  queueMicrotask(() => void runSearch(0, false, { text: v }));
+                  queueMicrotask(() => void runSearch(0, { text: v }));
                 }}
                 placeholder="e.g. React, Developer"
               />
@@ -1325,7 +1512,7 @@ export function SearchPage() {
                   onChange={(e) => setExcludedText(e.target.value)}
                   onBlur={(e) => {
                     const v = e.currentTarget.value;
-                    queueMicrotask(() => void runSearch(0, false, { excludedText: v }));
+                    queueMicrotask(() => void runSearch(0, { excludedText: v }));
                   }}
                   placeholder="e.g. intern, trainee, junior"
                   autoComplete="off"
@@ -1351,7 +1538,7 @@ export function SearchPage() {
                 onAmountChange={setSalaryAmount}
                 onAmountBlur={(e) => {
                   const canonical = parseSalaryAmount(e.currentTarget.value);
-                  queueMicrotask(() => void runSearch(0, false, { salaryAmount: canonical }));
+                  queueMicrotask(() => void runSearch(0, { salaryAmount: canonical }));
                 }}
                 currency={currencyResolved}
                 onCurrencyChange={setCurrency}
@@ -1371,7 +1558,23 @@ export function SearchPage() {
           </div>
 
           <fieldset className="field field--countries-regions">
-            <legend>Countries and regions</legend>
+            <legend className="countries-regions-legend">
+              <span className="countries-regions-legend__title">Countries and regions</span>
+              <button
+                type="button"
+                className="countries-regions-legend__action"
+                onClick={() =>
+                  hasRegionSelection ? clearRegionSelection() : selectAllPresetRegions()
+                }
+                aria-label={
+                  hasRegionSelection
+                    ? "Clear all countries and regions"
+                    : "Select all preset regions"
+                }
+              >
+                {hasRegionSelection ? "Clear all" : "Select all"}
+              </button>
+            </legend>
             <div
               ref={presetChipsStackRef}
               className="preset-chips-stack"
@@ -1409,7 +1612,7 @@ export function SearchPage() {
                   </button>
                 ))}
               </div>
-              <div className="chips chips--with-clear chips--preset-row-bottom">
+              <div className="chips chips--preset-row-bottom">
                 {PRESET_CHIP_ORDER_ROW_BOTTOM.map((key) => (
                   <button
                     key={key}
@@ -1421,16 +1624,6 @@ export function SearchPage() {
                     {presetChipLabel(key)}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="chip-area-clear"
-                  disabled={!hasRegionSelection}
-                  onClick={clearRegionSelection}
-                  aria-label="Clear countries and regions"
-                  title="Clear countries and regions"
-                >
-                  ×
-                </button>
               </div>
               <div className="chips chips--preset-row-nonpreset">
                 {PRESET_CHIP_ORDER_ROW_NONPRESET.map((key) => (
@@ -1699,12 +1892,20 @@ export function SearchPage() {
         </div>
       ) : null}
 
-      <section className="panel results">
+      <section ref={resultsSectionRef} className="panel results">
         {found != null ? (
-          <p className="muted small">
-            Найдено: {found}
-            {pages != null ? ` · страниц: ${pages}` : ""}
-          </p>
+          <div className="results-toolbar">
+            <p className="muted small results-toolbar__count">Найдено: {found}</p>
+            {showResultsPagination ? (
+              <ResultsPaginationCompact
+                searching={searching}
+                page={resultsPageForUi}
+                pages={pages}
+                onPrev={() => goToResultsPage(resultsPageForUi - 1)}
+                onNext={() => goToResultsPage(resultsPageForUi + 1)}
+              />
+            ) : null}
+          </div>
         ) : (
           <p className="muted small">
             {searching
@@ -1719,15 +1920,13 @@ export function SearchPage() {
             </li>
           ))}
         </ul>
-        {pages != null && page + 1 < pages ? (
-          <button
-            type="button"
-            className="secondary"
-            disabled={searching}
-            onClick={() => runSearch(page + 1, true)}
-          >
-            Загрузить ещё
-          </button>
+        {showResultsPagination ? (
+          <ResultsPaginationNumeric
+            searching={searching}
+            page={resultsPageForUi}
+            pages={pages}
+            onGoToPage={(p) => goToResultsPage(p)}
+          />
         ) : null}
       </section>
     </div>

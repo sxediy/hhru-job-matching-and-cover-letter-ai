@@ -716,51 +716,6 @@ fieldset legend {
   padding-top: 0.1rem;
 }
 
-.panel.filters .chips--with-clear {
-  align-items: center;
-}
-
-.panel.filters .chip-area-clear {
-  flex: 0 0 auto;
-  margin-inline-start: auto;
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.65rem;
-  min-height: 1.65rem;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 1.15rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.panel.filters .chip-area-clear:hover:not(:disabled) {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent-dim) 45%, var(--border));
-  background: color-mix(in srgb, var(--panel) 70%, var(--border));
-}
-
-.panel.filters .chip-area-clear:focus-visible {
-  outline: 2px solid var(--accent-dim);
-  outline-offset: 2px;
-}
-
-.panel.filters .chip-area-clear:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
-@media (max-width: 640px) {
-  .panel.filters .chips--with-clear .chip-area-clear {
-    margin-inline-start: 0;
-  }
-}
-
 .chip {
   border: 1px solid var(--border);
   background: transparent;
@@ -1056,8 +1011,47 @@ fieldset legend {
   margin-left: 0.06em;
 }
 
-.panel.filters .field--countries-regions > legend {
+.panel.filters .field--countries-regions > legend.countries-regions-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   margin-bottom: 0.65rem;
+}
+
+.countries-regions-legend__title {
+  margin: 0;
+  padding: 0;
+}
+
+.panel.filters .countries-regions-legend__action {
+  margin: 0;
+  padding: 0.1rem 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+  flex: 0 0 auto;
+}
+
+.panel.filters .countries-regions-legend__action:hover {
+  color: color-mix(in srgb, var(--text) 52%, var(--muted));
+}
+
+.panel.filters .countries-regions-legend__action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--muted) 50%, var(--border));
+  outline-offset: 2px;
 }
 
 .panel.filters .field--countries-regions > .preset-chips-stack {
@@ -1542,6 +1536,147 @@ button.secondary:disabled {
 .modal__actions button.primary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
+}
+
+.results-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+.results-toolbar__count {
+  margin: 0;
+}
+
+.results-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem 1rem;
+  margin-top: 1rem;
+}
+
+.results-pagination--numbered {
+  gap: 0.45rem 0.65rem;
+}
+
+.results-pagination__pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.panel.results .results-pagination__page {
+  box-sizing: border-box;
+  min-width: 2.1rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.panel.results .results-pagination__page:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 68%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 35%, var(--border));
+  background: color-mix(in srgb, var(--panel) 88%, var(--border));
+}
+
+.panel.results .results-pagination__page:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* Только активная страница (не смешивать с :disabled при loading — иначе все цифры «подсвечиваются»). */
+.panel.results .results-pagination__page--current {
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  cursor: default;
+}
+
+.panel.results .results-pagination__page:disabled:not(.results-pagination__page--current) {
+  opacity: 0.42;
+  cursor: not-allowed;
+  color: var(--muted);
+  border-color: var(--border);
+  background: transparent;
+}
+
+.results-pagination__ellipsis {
+  padding: 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 2rem;
+  user-select: none;
+}
+
+.results-pagination--compact {
+  margin-top: 0;
+  margin-bottom: 0;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.results-pagination__compact-page {
+  margin: 0;
+  min-width: 2.75rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.results-pagination__arrow {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.results-pagination__arrow:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 45%, var(--border));
+}
+
+.results-pagination__arrow:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.results-pagination__arrow:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.results-pagination__chevron-svg {
+  display: block;
 }
 
 .vacancy-list {
