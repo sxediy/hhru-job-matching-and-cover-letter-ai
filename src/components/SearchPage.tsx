@@ -1,7 +1,7 @@
 "use client";
 
 import areaPresetIds from "@/data/area-preset-ids.json";
-import type { HhAreaNode } from "@/lib/areas/flatten";
+import { flattenAreas, type HhAreaNode } from "@/lib/areas/flatten";
 import { MultiSelectChips } from "@/components/MultiSelectChips";
 import { parseSalaryAmount, SalaryCurrencyInput } from "@/components/SalaryCurrencyInput";
 import { VacancyCard, type VacancyItem } from "@/components/VacancyCard";
@@ -23,7 +23,7 @@ import {
   serializeAppUrlParamsToFiltersRecord,
 } from "@/lib/hh/vacancySearchPreferences";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
 type DictItem = { id: string; name: string };
 type CurrencyItem = { code: string; name: string; in_use?: boolean };
@@ -36,6 +36,7 @@ type Dictionaries = Record<string, DictItem[] | CurrencyItem[] | undefined> & {
 };
 
 type AreasBundle = {
+  roots: HhAreaNode[];
   otherRegions: HhAreaNode | null;
   russia: HhAreaNode | null;
   presetIds: typeof areaPresetIds;
@@ -44,9 +45,20 @@ type AreasBundle = {
 type PresetJsonKey = keyof typeof areaPresetIds;
 type PresetChipKey = PresetJsonKey | "russia" | "otherRegions";
 
+/** Presets whose tooltip is a short comma-separated country list from /areas. */
+const PRESET_COMMA_COUNTRY_TOOLTIP_KEYS = ["eu", "efta", "caucasus", "balkansNonEu"] as const;
+type PresetCommaCountryTooltipKey = (typeof PRESET_COMMA_COUNTRY_TOOLTIP_KEYS)[number];
+
+function isPresetCommaCountryTooltipKey(key: PresetChipKey): key is PresetCommaCountryTooltipKey {
+  return (PRESET_COMMA_COUNTRY_TOOLTIP_KEYS as readonly string[]).includes(key);
+}
+
 const PRESET_LABELS: Record<PresetJsonKey, string> = {
   eu: "EU",
   efta: "EFTA",
+  germany: "Germany",
+  ireland: "Ireland",
+  uk: "UK",
   balkansNonEu: "Balkans (non-EU)",
   middleEast: "Middle East",
   japanKorea: "Japan & Korea",
@@ -55,17 +67,80 @@ const PRESET_LABELS: Record<PresetJsonKey, string> = {
   asia: "Asia",
   africa: "Africa",
   caucasus: "Caucasus",
+  neighborsEast: "BY · UA · MD",
+  neighborsCentralAsia: "KZ · UZ · KG",
   usa: "USA",
   canada: "Canada",
-  uk: "UK",
-  ireland: "Ireland",
 };
 
-const PRESET_CHIP_ORDER: PresetChipKey[] = [
-  ...(Object.keys(areaPresetIds) as PresetJsonKey[]),
+/** Строка 1: Россия → Кавказ → Балканы → KZ/UZ/KG → BY/UA/MD. */
+const PRESET_CHIP_ORDER_ROW1: PresetChipKey[] = [
   "russia",
-  "otherRegions",
+  "caucasus",
+  "balkansNonEu",
+  "neighborsCentralAsia",
+  "neighborsEast",
 ];
+
+/** Одна строка: EU → … → UK → USA → Canada → Japan & Korea. */
+const PRESET_CHIP_ORDER_ROW_EU: PresetChipKey[] = [
+  "eu",
+  "efta",
+  "germany",
+  "ireland",
+  "uk",
+  "usa",
+  "canada",
+  "japanKorea",
+];
+
+/** Строка: Middle East → … → Africa; справа ×. */
+const PRESET_CHIP_ORDER_ROW_BOTTOM: PresetChipKey[] = [
+  "middleEast",
+  "asia",
+  "anz",
+  "latinAmerica",
+  "africa",
+];
+
+/** Отдельная нижняя строка: только Non-preset (HH). */
+const PRESET_CHIP_ORDER_ROW_NONPRESET: PresetChipKey[] = ["otherRegions"];
+
+/** Preset chips without hover tooltip (label is enough). */
+const PRESET_CHIP_KEYS_WITHOUT_TOOLTIP = new Set<PresetChipKey>([
+  "russia",
+  "germany",
+  "ireland",
+  "uk",
+  "usa",
+  "canada",
+  "japanKorea",
+  "middleEast",
+  "asia",
+  "anz",
+  "latinAmerica",
+  "africa",
+]);
+
+/** Long static tooltips (not comma-lists from /areas). */
+function presetChipStaticTooltip(key: PresetChipKey): string | undefined {
+  if (key === "otherRegions")
+    return "HeadHunter countries under «Other regions»";
+  if (key === "neighborsEast") return "Belarus, Ukraine, Moldova";
+  if (key === "neighborsCentralAsia") return "Kazakhstan, Uzbekistan, Kyrgyzstan";
+  return undefined;
+}
+
+function presetChipLabel(key: PresetChipKey): string {
+  if (key === "russia") return "Russia";
+  if (key === "otherRegions") return "Non-preset (HH)";
+  return PRESET_LABELS[key];
+}
+
+/** `area` ids in any geo preset — used to build the «Non-preset (HH)» chip id list only (country checkboxes stay full list). */
+const AREA_ID_IN_ANY_GEO_PRESET = new Set<string>(
+  (Object.values(areaPresetIds) as string[][]).flat(),
+);
 
 const SEARCH_FIELD_OPTIONS = [
   { id: "name", label: "Vacancy title" },
@@ -269,6 +344,27 @@ function FiltersPanelIconClear() {
   );
 }
 
+function clearPresetChipTooltipNudges(root: HTMLElement) {
+  root.querySelectorAll("button.chip[data-tooltip]").forEach((el) => {
+    (el as HTMLElement).style.removeProperty("--chip-tooltip-nudge");
+  });
+}
+
+/** Keep centered ::after tooltip inside the viewport (nudge right near left edge, left near right edge). */
+function updatePresetChipTooltipNudge(chip: HTMLElement) {
+  const rect = chip.getBoundingClientRect();
+  const margin = 10;
+  const vw = window.innerWidth;
+  const approxHalfWidth = Math.min(176, (vw - 2 * margin) * 0.42);
+  const center = rect.left + rect.width / 2;
+  const lo = margin - center + approxHalfWidth;
+  const hi = vw - margin - center - approxHalfWidth;
+  let shift = 0;
+  if (lo > 0) shift = lo;
+  else if (hi < 0) shift = hi;
+  chip.style.setProperty("--chip-tooltip-nudge", `${Math.round(shift)}px`);
+}
+
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
   const [areasBundle, setAreasBundle] = useState<AreasBundle | null>(null);
@@ -320,6 +416,7 @@ export function SearchPage() {
   const searchRequestIdRef = useRef(0);
   const countryScrollRef = useRef<HTMLDivElement>(null);
   const ruScrollRef = useRef<HTMLDivElement>(null);
+  const presetChipsStackRef = useRef<HTMLDivElement>(null);
   const initializedFromUrlRef = useRef(false);
   const initialUrlHadAppFiltersRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
@@ -355,12 +452,103 @@ export function SearchPage() {
     };
   }, []);
 
+  /** All HH «Other regions» (1001) countries — full list for checkboxes (same as before preset-chip work). */
   const countriesEn = useMemo(() => {
     if (!areasBundle?.otherRegions?.areas) return [];
     return [...areasBundle.otherRegions.areas]
       .filter((c) => c.id !== "1001")
       .map((c) => ({ id: c.id, nameEn: countryNameRuToEn(c.name) }))
       .sort((a, b) => a.nameEn.localeCompare(b.nameEn, "en"));
+  }, [areasBundle]);
+
+  /** EU / EFTA / Caucasus / Balkans: short English country list from HH /areas (comma-separated). */
+  const presetCommaCountryTooltips = useMemo(() => {
+    if (!areasBundle?.roots?.length) return null;
+    const flat = flattenAreas(areasBundle.roots);
+    function listFor(presetKey: PresetCommaCountryTooltipKey): string {
+      const ids = areaPresetIds[presetKey];
+      const names = ids
+        .map((id) => flat.get(id)?.name)
+        .filter((n): n is string => Boolean(n))
+        .map((n) => countryNameRuToEn(n));
+      return [...new Set(names)].sort((a, b) => a.localeCompare(b, "en")).join(", ");
+    }
+    return {
+      eu: listFor("eu"),
+      efta: listFor("efta"),
+      caucasus: listFor("caucasus"),
+      balkansNonEu: listFor("balkansNonEu"),
+    } satisfies Record<PresetCommaCountryTooltipKey, string>;
+  }, [areasBundle]);
+
+  const resolvePresetChipTooltip = useCallback(
+    (key: PresetChipKey): string | undefined => {
+      if (PRESET_CHIP_KEYS_WITHOUT_TOOLTIP.has(key)) return undefined;
+      if (isPresetCommaCountryTooltipKey(key))
+        return presetCommaCountryTooltips?.[key] || undefined;
+      return presetChipStaticTooltip(key);
+    },
+    [presetCommaCountryTooltips],
+  );
+
+  const handlePresetChipsStackPointerMove = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    const stack = presetChipsStackRef.current;
+    if (!stack) return;
+    const raw = e.target as HTMLElement | null;
+    const chip = raw?.closest?.("button.chip[data-tooltip]") as HTMLElement | null;
+    if (!chip || !stack.contains(chip)) {
+      clearPresetChipTooltipNudges(stack);
+      return;
+    }
+    stack.querySelectorAll("button.chip[data-tooltip]").forEach((el) => {
+      if (el !== chip) (el as HTMLElement).style.removeProperty("--chip-tooltip-nudge");
+    });
+    updatePresetChipTooltipNudge(chip);
+  }, []);
+
+  const handlePresetChipsStackPointerLeave = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    const stack = presetChipsStackRef.current;
+    if (!stack) return;
+    const rel = e.relatedTarget as Node | null;
+    if (rel && stack.contains(rel)) return;
+    clearPresetChipTooltipNudges(stack);
+  }, []);
+
+  useEffect(() => {
+    if (!dicts || !areasBundle) return;
+    const el = presetChipsStackRef.current;
+    if (!el) return;
+    const presetChipsRoot: HTMLElement = el;
+
+    function onFocusIn(e: FocusEvent) {
+      const chip = (e.target as HTMLElement | null)?.closest?.("button.chip[data-tooltip]") as
+        | HTMLElement
+        | null;
+      if (!chip || !presetChipsRoot.contains(chip)) return;
+      clearPresetChipTooltipNudges(presetChipsRoot);
+      updatePresetChipTooltipNudge(chip);
+    }
+
+    function onFocusOut(e: FocusEvent) {
+      const rel = e.relatedTarget as Node | null;
+      if (rel && presetChipsRoot.contains(rel)) return;
+      clearPresetChipTooltipNudges(presetChipsRoot);
+    }
+
+    presetChipsRoot.addEventListener("focusin", onFocusIn);
+    presetChipsRoot.addEventListener("focusout", onFocusOut);
+    return () => {
+      presetChipsRoot.removeEventListener("focusin", onFocusIn);
+      presetChipsRoot.removeEventListener("focusout", onFocusOut);
+    };
+  }, [dicts, areasBundle]);
+
+  /** 1001 direct children not covered by any geo preset chip — only for «Non-preset (HH)» toggle. */
+  const orphan1001AreaIds = useMemo(() => {
+    if (!areasBundle?.otherRegions?.areas) return [];
+    return areasBundle.otherRegions.areas
+      .map((c) => c.id)
+      .filter((id) => id !== "1001" && !AREA_ID_IN_ANY_GEO_PRESET.has(id));
   }, [areasBundle]);
 
   const ruSubjects = useMemo(() => {
@@ -452,34 +640,61 @@ export function SearchPage() {
       if (key === "otherRegions") {
         setSelectedAreaIds((prev) => {
           const next = new Set(prev);
-          if (next.has("1001")) next.delete("1001");
-          else next.add("1001");
+          const ids = orphan1001AreaIds;
+          const allOn =
+            prev.has("1001") || (ids.length > 0 && ids.every((id) => prev.has(id)));
+          if (allOn) {
+            next.delete("1001");
+            for (const id of ids) next.delete(id);
+          } else {
+            next.delete("1001");
+            for (const id of ids) next.add(id);
+          }
           return next;
         });
         return;
       }
       togglePreset(key);
     },
-    [togglePreset, toggleRussiaChip],
+    [orphan1001AreaIds, togglePreset, toggleRussiaChip],
   );
 
   const chipPresetActive = useCallback(
     (key: PresetChipKey) => {
       if (key === "russia") return russiaPresetActive();
-      if (key === "otherRegions") return selectedAreaIds.has("1001");
+      if (key === "otherRegions") {
+        if (selectedAreaIds.has("1001")) return true;
+        return (
+          orphan1001AreaIds.length > 0 &&
+          orphan1001AreaIds.every((id) => selectedAreaIds.has(id))
+        );
+      }
       return presetActive(key);
     },
-    [presetActive, russiaPresetActive, selectedAreaIds],
+    [orphan1001AreaIds, presetActive, russiaPresetActive, selectedAreaIds],
   );
 
   const chipPresetPartial = useCallback(
     (key: PresetChipKey) => {
       if (key === "russia") return russiaPresetPartial();
-      if (key === "otherRegions") return false;
+      if (key === "otherRegions") {
+        if (selectedAreaIds.has("1001")) return false;
+        const any = orphan1001AreaIds.some((id) => selectedAreaIds.has(id));
+        const all = orphan1001AreaIds.length > 0 && orphan1001AreaIds.every((id) => selectedAreaIds.has(id));
+        return any && !all;
+      }
       return presetPartial(key);
     },
-    [presetPartial, russiaPresetPartial],
+    [orphan1001AreaIds, presetPartial, russiaPresetPartial, selectedAreaIds],
   );
+
+  /** Сброс всех выбранных регионов (чипы пресетов, Россия, галочки в списках стран/субъектов). */
+  const clearRegionSelection = useCallback(() => {
+    setSelectedAreaIds(new Set());
+    setRussiaAll(false);
+  }, []);
+
+  const hasRegionSelection = selectedAreaIds.size > 0;
 
   const toggleAreaId = useCallback(
     (id: string) => {
@@ -1055,7 +1270,7 @@ export function SearchPage() {
     return () => {
       for (const c of cleanups) c();
     };
-  }, [dicts, areasBundle, russiaListOpen]);
+  }, [dicts, areasBundle, russiaListOpen, countryListOpen]);
 
   if (loadError) {
     return (
@@ -1155,23 +1370,81 @@ export function SearchPage() {
             </label>
           </div>
 
-          <fieldset className="field">
+          <fieldset className="field field--countries-regions">
             <legend>Countries and regions</legend>
-            <div className="chips">
-              {PRESET_CHIP_ORDER.map((key) => (
+            <div
+              ref={presetChipsStackRef}
+              className="preset-chips-stack"
+              onPointerMove={handlePresetChipsStackPointerMove}
+              onPointerLeave={handlePresetChipsStackPointerLeave}
+            >
+              <div className="chips chips--preset-row-1">
+                {PRESET_CHIP_ORDER_ROW1.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`chip ${key === "neighborsCentralAsia" || key === "neighborsEast" ? "chip--geo-codes " : ""}${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
+                    onClick={() => togglePresetChip(key)}
+                    data-tooltip={resolvePresetChipTooltip(key)}
+                    aria-label={
+                      key === "neighborsCentralAsia" || key === "neighborsEast"
+                        ? resolvePresetChipTooltip(key)
+                        : undefined
+                    }
+                  >
+                    {presetChipLabel(key)}
+                  </button>
+                ))}
+              </div>
+              <div className="chips chips--preset-row-eu">
+                {PRESET_CHIP_ORDER_ROW_EU.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
+                    onClick={() => togglePresetChip(key)}
+                    data-tooltip={resolvePresetChipTooltip(key)}
+                  >
+                    {presetChipLabel(key)}
+                  </button>
+                ))}
+              </div>
+              <div className="chips chips--with-clear chips--preset-row-bottom">
+                {PRESET_CHIP_ORDER_ROW_BOTTOM.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
+                    onClick={() => togglePresetChip(key)}
+                    data-tooltip={resolvePresetChipTooltip(key)}
+                  >
+                    {presetChipLabel(key)}
+                  </button>
+                ))}
                 <button
-                  key={key}
                   type="button"
-                  className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
-                  onClick={() => togglePresetChip(key)}
+                  className="chip-area-clear"
+                  disabled={!hasRegionSelection}
+                  onClick={clearRegionSelection}
+                  aria-label="Clear countries and regions"
+                  title="Clear countries and regions"
                 >
-                  {key === "russia"
-                    ? "Russia"
-                    : key === "otherRegions"
-                      ? "Other regions"
-                      : PRESET_LABELS[key]}
+                  ×
                 </button>
-              ))}
+              </div>
+              <div className="chips chips--preset-row-nonpreset">
+                {PRESET_CHIP_ORDER_ROW_NONPRESET.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`chip ${chipPresetActive(key) ? "chip--on" : ""} ${chipPresetPartial(key) ? "chip--partial" : ""}`}
+                    onClick={() => togglePresetChip(key)}
+                    data-tooltip={resolvePresetChipTooltip(key)}
+                  >
+                    {presetChipLabel(key)}
+                  </button>
+                ))}
+              </div>
             </div>
           </fieldset>
 

@@ -704,6 +704,63 @@ fieldset legend {
   gap: 0.4rem;
 }
 
+.panel.filters .preset-chips-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.panel.filters .chips--preset-row-eu,
+.panel.filters .chips--preset-row-bottom,
+.panel.filters .chips--preset-row-nonpreset {
+  padding-top: 0.1rem;
+}
+
+.panel.filters .chips--with-clear {
+  align-items: center;
+}
+
+.panel.filters .chip-area-clear {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  min-height: 1.65rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel.filters .chip-area-clear:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-dim) 45%, var(--border));
+  background: color-mix(in srgb, var(--panel) 70%, var(--border));
+}
+
+.panel.filters .chip-area-clear:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+
+.panel.filters .chip-area-clear:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .panel.filters .chips--with-clear .chip-area-clear {
+    margin-inline-start: 0;
+  }
+}
+
 .chip {
   border: 1px solid var(--border);
   background: transparent;
@@ -750,6 +807,44 @@ fieldset legend {
 
 .panel.filters .chips .chip--partial {
   color: var(--muted);
+}
+
+.panel.filters .chips .chip--geo-codes {
+  font-size: 0.74rem;
+  padding: 0.22rem 0.48rem;
+  letter-spacing: 0.02em;
+}
+
+/* Preset region chips: instant hover/focus hint (native title is often missing or delayed). */
+.panel.filters .preset-chips-stack .chips .chip[data-tooltip] {
+  position: relative;
+}
+
+.panel.filters .preset-chips-stack .chips .chip[data-tooltip]:hover::after,
+.panel.filters .preset-chips-stack .chips .chip[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 120;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  /* --chip-tooltip-nudge set from JS so the bubble stays in the viewport */
+  transform: translateX(calc(-50% + var(--chip-tooltip-nudge, 0px)));
+  padding: 0.45rem 0.55rem;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  width: max-content;
+  box-sizing: border-box;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.38;
+  white-space: normal;
+  text-align: left;
+  hyphens: auto;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 96%, var(--border));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px color-mix(in srgb, #000 18%, transparent);
+  pointer-events: none;
 }
 
 .regions-split {
@@ -959,6 +1054,14 @@ fieldset legend {
   line-height: 1;
   vertical-align: baseline;
   margin-left: 0.06em;
+}
+
+.panel.filters .field--countries-regions > legend {
+  margin-bottom: 0.65rem;
+}
+
+.panel.filters .field--countries-regions > .preset-chips-stack {
+  margin-top: 0.15rem;
 }
 
 .multi-select-chips {
