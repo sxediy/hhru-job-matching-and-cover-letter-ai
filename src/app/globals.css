@@ -1657,6 +1657,169 @@ button.secondary:disabled {
   margin: 0;
 }
 
+.results-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.65rem;
+}
+
+/* Hover/focus tooltip (same idea as preset chips): anchor catches pointer when inner button is disabled */
+.panel.results .results-toolbar__cache-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.panel.results .results-toolbar__cache-tooltip-anchor--blocked {
+  cursor: not-allowed;
+}
+
+.panel.results .results-toolbar__cache-tooltip-anchor--blocked .results-toolbar__cache-btn {
+  pointer-events: none;
+}
+
+.panel.results .results-toolbar__cache-tooltip-anchor[data-tooltip]:hover::after,
+.panel.results
+  .results-toolbar__cache-tooltip-anchor[data-tooltip]:has(.results-toolbar__cache-btn:focus-visible)::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 120;
+  left: 50%;
+  top: calc(100% + 6px);
+  bottom: auto;
+  transform: translateX(-50%);
+  padding: 0.45rem 0.55rem;
+  max-width: min(20rem, calc(100vw - 1.5rem));
+  width: max-content;
+  box-sizing: border-box;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.38;
+  white-space: normal;
+  text-align: left;
+  hyphens: auto;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 96%, var(--border));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px color-mix(in srgb, #000 18%, transparent);
+  pointer-events: none;
+}
+
+/* Match compact pagination row (2rem arrows); muted blue — not global button.secondary accent */
+.panel.results .results-toolbar__cache-btn {
+  margin-top: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0 0.7rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 52%, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--accent-dim) 42%, var(--border));
+  cursor: pointer;
+  gap: 0.45rem;
+}
+
+.results-toolbar__cache-btn-spinner {
+  box-sizing: border-box;
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--accent-dim) 35%, var(--border));
+  border-top-color: color-mix(in srgb, var(--accent-dim) 88%, var(--muted));
+  border-radius: 50%;
+  animation: results-toolbar-cache-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .results-toolbar__cache-btn-spinner {
+    animation: none;
+    border-top-color: color-mix(in srgb, var(--accent-dim) 55%, var(--border));
+    opacity: 0.85;
+  }
+}
+
+@keyframes results-toolbar-cache-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.panel.results .results-toolbar__cache-btn:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  border-color: color-mix(in srgb, var(--accent-dim) 48%, var(--border));
+  background: color-mix(in srgb, var(--panel) 88%, var(--border));
+}
+
+.panel.results .results-toolbar__cache-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  outline-offset: 2px;
+}
+
+.panel.results .results-toolbar__cache-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.panel.results .results-toolbar__cache-btn:disabled[aria-busy="true"] {
+  opacity: 1;
+  cursor: wait;
+}
+
+.results-cache-banner {
+  margin: 0.5rem 0 0.65rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  border: 1px solid var(--border);
+}
+
+.results-cache-banner--success {
+  color: color-mix(in srgb, var(--text) 94%, var(--muted));
+  background: color-mix(in srgb, #22c55e 12%, var(--panel));
+  border-color: color-mix(in srgb, #22c55e 38%, var(--border));
+}
+
+.results-cache-banner--warning {
+  color: color-mix(in srgb, var(--text) 90%, var(--muted));
+  background: color-mix(in srgb, #eab308 10%, var(--panel));
+  border-color: color-mix(in srgb, #ca8a04 35%, var(--border));
+}
+
+.results-cache-banner--error {
+  color: color-mix(in srgb, var(--error) 12%, var(--text));
+  background: color-mix(in srgb, var(--error) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--error) 42%, var(--border));
+}
+
+@media (prefers-color-scheme: light) {
+  .results-cache-banner--success {
+    background: color-mix(in srgb, #16a34a 08%, var(--panel));
+    border-color: color-mix(in srgb, #16a34a 28%, var(--border));
+  }
+
+  .results-cache-banner--warning {
+    background: color-mix(in srgb, #ca8a04 08%, var(--panel));
+    border-color: color-mix(in srgb, #a16207 25%, var(--border));
+  }
+
+  .results-cache-banner--error {
+    background: color-mix(in srgb, var(--error) 06%, var(--panel));
+    border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+  }
+}
+
 .results-pagination {
   display: flex;
   flex-wrap: wrap;

@@ -512,6 +512,17 @@ function updatePresetChipTooltipNudge(chip: HTMLElement) {
   chip.style.setProperty("--chip-tooltip-nudge", `${Math.round(shift)}px`);
 }
 
+/** Range input 0–100: unlock primary action at or above this value. */
+const VAULT_SLIDER_THRESHOLD = 94;
+
+/** Do not offer full-detail cache when HH reports more matches than this (narrow filters first). */
+const MAX_FOUND_FOR_VACANCY_DETAILS_CACHE = 400;
+
+const CACHE_LOAD_DETAILS_TOOLTIP_OK =
+  "Stores full vacancy payloads from hh.ru for the listings on this page.";
+const CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED =
+  "Too many results for this action. Need no more than 400.";
+
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
   const [areasBundle, setAreasBundle] = useState<AreasBundle | null>(null);
@@ -553,6 +564,9 @@ export function SearchPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  const tooManyResultsForCache =
+    found != null && found > MAX_FOUND_FOR_VACANCY_DETAILS_CACHE;
+
   const snapshotRef = useRef<SearchSnapshot>({
     text: "",
     excludedText: "",
@@ -574,12 +588,19 @@ export function SearchPage() {
   const initializedFromUrlRef = useRef(false);
   const initialUrlHadAppFiltersRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
+  const cacheNoticeTimerRef = useRef<number | null>(null);
 
   const [urlInitialized, setUrlInitialized] = useState(false);
   const [prefsHydrated, setPrefsHydrated] = useState(false);
   const [savePrefsBusy, setSavePrefsBusy] = useState(false);
   const [savePrefsError, setSavePrefsError] = useState<string | null>(null);
   const [restorePrefsBusy, setRestorePrefsBusy] = useState(false);
+
+  const [isCacheDetailsConfirmOpen, setIsCacheDetailsConfirmOpen] = useState(false);
+  const [cacheDetailsUnlockSlider, setCacheDetailsUnlockSlider] = useState(0);
+  const [cacheDetailsBusy, setCacheDetailsBusy] = useState(false);
+  const [cacheDetailsError, setCacheDetailsError] = useState<string | null>(null);
+  const [cacheDetailsNotice, setCacheDetailsNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1217,6 +1238,7 @@ export function SearchPage() {
   useEffect(
     () => () => {
       if (copyResetTimerRef.current != null) window.clearTimeout(copyResetTimerRef.current);
+      if (cacheNoticeTimerRef.current != null) window.clearTimeout(cacheNoticeTimerRef.current);
     },
     [],
   );
@@ -1294,8 +1316,6 @@ export function SearchPage() {
     queueMicrotask(() => void runSearch(0, emptyOverride));
   }, [runSearch]);
 
-  const SAVE_PREFS_SLIDER_THRESHOLD = 94;
-
   const savePreferences = useCallback(async (): Promise<boolean> => {
     if (!isSupabaseConfigured()) return false;
     setSavePrefsError(null);
@@ -1330,6 +1350,78 @@ export function SearchPage() {
       setSavePrefsUnlockSlider(0);
     }
   }, [savePreferences]);
+
+  const CACHE_DETAILS_NOTICE_MS = 12_000;
+
+  const showCacheDetailsNotice = useCallback((message: string) => {
+    setCacheDetailsError(null);
+    setCacheDetailsNotice(message);
+    if (cacheNoticeTimerRef.current != null) window.clearTimeout(cacheNoticeTimerRef.current);
+    cacheNoticeTimerRef.current = window.setTimeout(() => {
+      setCacheDetailsNotice(null);
+      cacheNoticeTimerRef.current = null;
+    }, CACHE_DETAILS_NOTICE_MS);
+  }, []);
+
+  const confirmCacheVacancyDetails = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    const vacancyIds = items.map((it) => it.id).filter((id) => /^\d+$/.test(id));
+    if (vacancyIds.length === 0) {
+      setCacheDetailsError("No vacancies on this page to save.");
+      return;
+    }
+    setCacheDetailsError(null);
+    setIsCacheDetailsConfirmOpen(false);
+    setCacheDetailsUnlockSlider(0);
+    setCacheDetailsBusy(true);
+    try {
+      const res = await fetch("/api/me/vacancy-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vacancyIds,
+          searchFound: found ?? undefined,
+        }),
+      });
+      const raw = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        saved?: number;
+        requested?: number;
+        failed?: { id: string; status: number; detail?: string }[];
+      };
+      if (!res.ok) {
+        const msg = typeof raw?.error === "string" ? raw.error : `Request failed (${res.status})`;
+        throw new Error(msg);
+      }
+      const saved = typeof raw.saved === "number" ? raw.saved : 0;
+      const requested = typeof raw.requested === "number" ? raw.requested : vacancyIds.length;
+      const failed = Array.isArray(raw.failed) ? raw.failed : [];
+      if (failed.length === 0) {
+        showCacheDetailsNotice(
+          saved === requested
+            ? `Saved full descriptions for ${saved} listing${saved === 1 ? "" : "s"}.`
+            : `Saved ${saved} of ${requested} listings.`,
+        );
+      } else {
+        const failHint =
+          failed.length <= 3
+            ? ` Some failed: ${failed.map((f) => f.id).join(", ")}.`
+            : ` ${failed.length} listings could not be fetched.`;
+        showCacheDetailsNotice(
+          `Saved ${saved} of ${requested}.${failHint}`,
+        );
+      }
+    } catch (e) {
+      if (cacheNoticeTimerRef.current != null) {
+        window.clearTimeout(cacheNoticeTimerRef.current);
+        cacheNoticeTimerRef.current = null;
+      }
+      setCacheDetailsNotice(null);
+      setCacheDetailsError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setCacheDetailsBusy(false);
+    }
+  }, [items, found, showCacheDetailsNotice]);
 
   const restorePreferences = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
@@ -1958,14 +2050,14 @@ export function SearchPage() {
                 aria-valuemax={100}
                 aria-valuenow={savePrefsUnlockSlider}
                 aria-valuetext={
-                  savePrefsUnlockSlider >= SAVE_PREFS_SLIDER_THRESHOLD
+                  savePrefsUnlockSlider >= VAULT_SLIDER_THRESHOLD
                     ? "Unlocked, ready to save"
                     : `${savePrefsUnlockSlider} percent, keep sliding right to unlock`
                 }
                 onChange={(e) => setSavePrefsUnlockSlider(Number(e.target.value))}
               />
               <p className="save-prefs-unlock__hint muted small" aria-live="polite">
-                {savePrefsUnlockSlider >= SAVE_PREFS_SLIDER_THRESHOLD
+                {savePrefsUnlockSlider >= VAULT_SLIDER_THRESHOLD
                   ? "Unlocked — you can overwrite on the server."
                   : "Not yet — slide further right."}
               </p>
@@ -1986,7 +2078,7 @@ export function SearchPage() {
                 type="button"
                 className="primary"
                 disabled={
-                  savePrefsBusy || savePrefsUnlockSlider < SAVE_PREFS_SLIDER_THRESHOLD
+                  savePrefsBusy || savePrefsUnlockSlider < VAULT_SLIDER_THRESHOLD
                 }
                 onClick={() => void confirmSavePreferences()}
               >
@@ -1997,19 +2089,141 @@ export function SearchPage() {
         </div>
       ) : null}
 
+      {isCacheDetailsConfirmOpen ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            setIsCacheDetailsConfirmOpen(false);
+            setCacheDetailsUnlockSlider(0);
+            setCacheDetailsError(null);
+          }}
+        >
+          <div
+            className="modal modal--save-prefs"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cache-details-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="cache-details-dialog-title">
+              Save full vacancy descriptions to your account for further analysis
+            </h2>
+            <p className="muted small modal__lede">
+              We will fetch each vacancy on this page from HeadHunter (one API call per listing) and
+              store the full JSON on your account. Drag the dial all the way to the right, then
+              confirm.
+            </p>
+            <div className="save-prefs-vault" aria-hidden>
+              <div
+                className="save-prefs-vault__dial"
+                style={{ transform: `rotate(${cacheDetailsUnlockSlider * 2.5 - 125}deg)` }}
+              />
+            </div>
+            <div className="save-prefs-unlock-wrap">
+              <label className="save-prefs-unlock__label" htmlFor="cache-details-unlock-slider">
+                Slide to unlock save
+              </label>
+              <input
+                id="cache-details-unlock-slider"
+                className="save-prefs-unlock"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={cacheDetailsUnlockSlider}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={cacheDetailsUnlockSlider}
+                aria-valuetext={
+                  cacheDetailsUnlockSlider >= VAULT_SLIDER_THRESHOLD
+                    ? "Unlocked, ready to save"
+                    : `${cacheDetailsUnlockSlider} percent, keep sliding right to unlock`
+                }
+                onChange={(e) => setCacheDetailsUnlockSlider(Number(e.target.value))}
+              />
+              <p className="save-prefs-unlock__hint muted small" aria-live="polite">
+                {cacheDetailsUnlockSlider >= VAULT_SLIDER_THRESHOLD
+                  ? "Unlocked — you can fetch and save."
+                  : "Not yet — slide further right."}
+              </p>
+            </div>
+            {cacheDetailsError ? <p className="error small">{cacheDetailsError}</p> : null}
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setIsCacheDetailsConfirmOpen(false);
+                  setCacheDetailsUnlockSlider(0);
+                  setCacheDetailsError(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={cacheDetailsUnlockSlider < VAULT_SLIDER_THRESHOLD}
+                onClick={() => void confirmCacheVacancyDetails()}
+              >
+                {`Fetch and save details for ${items.length} position${items.length === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <section ref={resultsSectionRef} className="panel results">
         {found != null ? (
           <div className="results-toolbar">
             <p className="muted small results-toolbar__count">Найдено: {found}</p>
-            {showResultsPagination ? (
-              <ResultsPaginationCompact
-                searching={searching}
-                page={resultsPageForUi}
-                pages={pages}
-                onPrev={() => goToResultsPage(resultsPageForUi - 1)}
-                onNext={() => goToResultsPage(resultsPageForUi + 1)}
-              />
-            ) : null}
+            <div className="results-toolbar__actions">
+              {isSupabaseConfigured() && items.length > 0 ? (
+                <div
+                  className={`results-toolbar__cache-tooltip-anchor${tooManyResultsForCache ? " results-toolbar__cache-tooltip-anchor--blocked" : ""}`}
+                  data-tooltip={
+                    tooManyResultsForCache
+                      ? CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED
+                      : CACHE_LOAD_DETAILS_TOOLTIP_OK
+                  }
+                >
+                  <button
+                    type="button"
+                    className="secondary results-toolbar__cache-btn"
+                    disabled={cacheDetailsBusy || searching || tooManyResultsForCache}
+                    aria-busy={cacheDetailsBusy}
+                    aria-label={
+                      cacheDetailsBusy ? "Saving vacancy details to your account" : undefined
+                    }
+                    onClick={() => {
+                      if (tooManyResultsForCache) return;
+                      setCacheDetailsError(null);
+                      setCacheDetailsUnlockSlider(0);
+                      setIsCacheDetailsConfirmOpen(true);
+                    }}
+                  >
+                    {cacheDetailsBusy ? (
+                      <>
+                        <span className="results-toolbar__cache-btn-spinner" aria-hidden />
+                        <span>Saving…</span>
+                      </>
+                    ) : (
+                      "Load full details"
+                    )}
+                  </button>
+                </div>
+              ) : null}
+              {showResultsPagination ? (
+                <ResultsPaginationCompact
+                  searching={searching}
+                  page={resultsPageForUi}
+                  pages={pages}
+                  onPrev={() => goToResultsPage(resultsPageForUi - 1)}
+                  onNext={() => goToResultsPage(resultsPageForUi + 1)}
+                />
+              ) : null}
+            </div>
           </div>
         ) : (
           <p className="muted small">
@@ -2018,6 +2232,31 @@ export function SearchPage() {
               : "Filters run automatically. Text and exclude fields apply when the field loses focus."}
           </p>
         )}
+        {(() => {
+          const errOpen = Boolean(cacheDetailsError && !isCacheDetailsConfirmOpen);
+          const msg = cacheDetailsNotice;
+          if (!errOpen && !msg) return null;
+          const text = errOpen ? (cacheDetailsError as string) : msg;
+          const isError = errOpen;
+          const isWarning =
+            !isError &&
+            Boolean(
+              msg &&
+                (msg.includes("could not be fetched") ||
+                  msg.includes("Some failed:") ||
+                  msg.includes("listings could not")),
+            );
+          const bannerClass = isError
+            ? "results-cache-banner results-cache-banner--error"
+            : isWarning
+              ? "results-cache-banner results-cache-banner--warning"
+              : "results-cache-banner results-cache-banner--success";
+          return (
+            <div role={isError ? "alert" : "status"} aria-live={isError ? "assertive" : "polite"} className={bannerClass}>
+              {text}
+            </div>
+          );
+        })()}
         <ul className="vacancy-list">
           {items.map((it) => (
             <li key={it.id}>
