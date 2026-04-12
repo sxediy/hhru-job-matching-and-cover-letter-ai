@@ -2,14 +2,17 @@
 
 import areaPresetIds from "@/data/area-preset-ids.json";
 import { flattenAreas, type HhAreaNode } from "@/lib/areas/flatten";
+import { FreeTextChipsField } from "@/components/FreeTextChipsField";
 import { MultiSelectChips } from "@/components/MultiSelectChips";
 import { parseSalaryAmount, SalaryCurrencyInput } from "@/components/SalaryCurrencyInput";
 import { VacancyCard, type VacancyItem } from "@/components/VacancyCard";
 import { countryNameRuToEn } from "@/lib/hh/countryNameEn";
+import { HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS } from "@/lib/hh/hhVacancySearchMaxFoundForHeavyActions";
 import {
   buildVacancyAppUrlSearchParams,
   parseVacancyAppSearchFromUrlSearchParams,
   urlSearchParamsHasVacancyAppFilter,
+  vacancyAppSearchParamsForHhWebsite,
   VACANCY_APP_URL_LABEL_IDS,
   type VacancyAppUrlLabelId,
 } from "@/lib/hh/vacancyAppSearchUrl";
@@ -22,6 +25,11 @@ import {
   parseFiltersRecordToUrlSearchParams,
   serializeAppUrlParamsToFiltersRecord,
 } from "@/lib/hh/vacancySearchPreferences";
+import {
+  chunkVacancyIdsForSave,
+  VACANCY_DETAILS_SAVE_MAX_IDS_PER_REQUEST,
+} from "@/lib/me/vacancyDetailsSaveChunk";
+import { filterVacanciesByLocalTitlePhrases } from "@/lib/vacancyTitleLocalFilter";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
@@ -198,6 +206,7 @@ type SearchSnapshot = {
   withStatedSalary: boolean;
   salaryAmount: string;
   currencyResolved: string;
+  titleLocalExcludes: string[];
 };
 
 function FiltersBarIconImport() {
@@ -515,13 +524,63 @@ function updatePresetChipTooltipNudge(chip: HTMLElement) {
 /** Range input 0–100: unlock primary action at or above this value. */
 const VAULT_SLIDER_THRESHOLD = 94;
 
-/** Do not offer full-detail cache when HH reports more matches than this (narrow filters first). */
-const MAX_FOUND_FOR_VACANCY_DETAILS_CACHE = 400;
+/**
+ * Vacancy list page size: same for hh.ru API (`/vacancies`) and client-side title-filter pages,
+ * so HH `pages` matches how many items we slice per «page» after filtering.
+ * (hh.ru allows up to 100 — see `vacancyQuery`; we keep 50 for consistent UX.)
+ */
+const VACANCY_LIST_PAGE_SIZE = 50;
 
 const CACHE_LOAD_DETAILS_TOOLTIP_OK =
   "Stores full vacancy payloads from hh.ru for the listings on this page.";
-const CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED =
-  "Too many results for this action. Need no more than 400.";
+const CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED = `Too many results for this action. Need no more than ${HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS}.`;
+
+function mergeVacancyItemsDedupe(prev: VacancyItem[], more: VacancyItem[]): VacancyItem[] {
+  if (more.length === 0) return prev;
+  const seen = new Set(prev.map((x) => x.id));
+  const add: VacancyItem[] = [];
+  for (const it of more) {
+    if (!seen.has(it.id)) {
+      seen.add(it.id);
+      add.push(it);
+    }
+  }
+  return add.length === 0 ? prev : [...prev, ...add];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function buildVacancyListRequestBody(
+  s: SearchSnapshot,
+  page: number,
+  perPage: number,
+): Record<string, unknown> {
+  const salaryNum = s.salaryAmount === "" ? null : Number(s.salaryAmount);
+  const hasSalary = salaryNum != null && s.salaryAmount !== "" && !Number.isNaN(salaryNum);
+  const excluded = s.excludedText.trim();
+  return {
+    text: s.text,
+    excludedText: excluded || undefined,
+    searchFields:
+      s.searchFields.length === 0 ||
+      (s.searchFields.length === 3 &&
+        DEFAULT_VACANCY_SEARCH_FIELDS.every((f) => s.searchFields.includes(f)))
+        ? undefined
+        : s.searchFields,
+    areaIds: [...s.selectedAreaIds],
+    employmentForm: [...s.employmentForm],
+    experience: s.experience.size ? [...s.experience] : undefined,
+    workFormat: [...s.workFormat],
+    labels: [...s.labels],
+    withStatedSalary: s.withStatedSalary || undefined,
+    salary: hasSalary ? salaryNum : undefined,
+    currency_code: hasSalary ? s.currencyResolved : undefined,
+    page,
+    perPage,
+  };
+}
 
 export function SearchPage() {
   const [dicts, setDicts] = useState<Dictionaries | null>(null);
@@ -558,14 +617,72 @@ export function SearchPage() {
   /** Пока идёт запрос вакансий — подсветка пагинации следует сюда, не ждёт setPage из ответа. */
   const [pendingResultsPage, setPendingResultsPage] = useState<number | null>(null);
   const resultsPageForUi = pendingResultsPage ?? page;
-  const [items, setItems] = useState<VacancyItem[]>([]);
+  /** Raw vacancies from the last hh.ru page response (HH pagination, no title chips). */
+  const [lastPageApiItems, setLastPageApiItems] = useState<VacancyItem[]>([]);
+  /**
+   * Raw vacancies loaded for «Hide if title contains»: sequential hh pages (capped),
+   * then filtered client-side; pagination over the filtered list is local.
+   */
+  const [titleFilterBulkRaw, setTitleFilterBulkRaw] = useState<VacancyItem[]>([]);
+  const [titleFilterBulkLoading, setTitleFilterBulkLoading] = useState(false);
+  const [titleFilterBulkError, setTitleFilterBulkError] = useState<string | null>(null);
+  const [titleFilterClientPage, setTitleFilterClientPage] = useState(0);
+  const [vacancyTitleLocalExcludes, setVacancyTitleLocalExcludes] = useState<string[]>([]);
   const [found, setFound] = useState<number | null>(null);
   const [pages, setPages] = useState<number | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  const vacancyTitleLocalExcludesKey = useMemo(
+    () => vacancyTitleLocalExcludes.join("\u0001"),
+    [vacancyTitleLocalExcludes],
+  );
+
+  const titleFilteredFullList = useMemo(() => {
+    if (vacancyTitleLocalExcludes.length === 0) return [];
+    const source =
+      found != null && found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS
+        ? lastPageApiItems
+        : titleFilterBulkRaw;
+    return filterVacanciesByLocalTitlePhrases(source, vacancyTitleLocalExcludes);
+  }, [vacancyTitleLocalExcludes, titleFilterBulkRaw, lastPageApiItems, found]);
+
+  const titleFilterClientPageCount = useMemo(() => {
+    if (vacancyTitleLocalExcludes.length === 0) return 0;
+    if (found != null && found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS) return 1;
+    return Math.max(1, Math.ceil(titleFilteredFullList.length / VACANCY_LIST_PAGE_SIZE));
+  }, [vacancyTitleLocalExcludes.length, titleFilteredFullList.length, found]);
+
+  useEffect(() => {
+    if (vacancyTitleLocalExcludes.length === 0) return;
+    setTitleFilterClientPage((p) => Math.min(p, Math.max(0, titleFilterClientPageCount - 1)));
+  }, [titleFilterClientPageCount, vacancyTitleLocalExcludes.length]);
+
+  const items = useMemo(() => {
+    if (vacancyTitleLocalExcludes.length === 0) return lastPageApiItems;
+    if (found != null && found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS) {
+      return titleFilteredFullList;
+    }
+    const start = titleFilterClientPage * VACANCY_LIST_PAGE_SIZE;
+    return titleFilteredFullList.slice(start, start + VACANCY_LIST_PAGE_SIZE);
+  }, [
+    vacancyTitleLocalExcludes.length,
+    lastPageApiItems,
+    titleFilteredFullList,
+    titleFilterClientPage,
+    found,
+  ]);
+
+  /** Light mode only: filtered vs raw on current HH page (second toolbar line). */
+  const titleFilterLightModeFraction = useMemo(() => {
+    if (vacancyTitleLocalExcludes.length === 0) return null;
+    if (found == null || found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS) return null;
+    const denom = lastPageApiItems.length;
+    return { num: titleFilteredFullList.length, denom };
+  }, [vacancyTitleLocalExcludes.length, found, lastPageApiItems.length, titleFilteredFullList.length]);
+
   const tooManyResultsForCache =
-    found != null && found > MAX_FOUND_FOR_VACANCY_DETAILS_CACHE;
+    found != null && found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS;
 
   const snapshotRef = useRef<SearchSnapshot>({
     text: "",
@@ -579,8 +696,10 @@ export function SearchPage() {
     withStatedSalary: false,
     salaryAmount: "",
     currencyResolved: "",
+    titleLocalExcludes: [],
   });
   const searchRequestIdRef = useRef(0);
+  const lastPageApiItemsRef = useRef<VacancyItem[]>([]);
   const countryScrollRef = useRef<HTMLDivElement>(null);
   const ruScrollRef = useRef<HTMLDivElement>(null);
   const presetChipsStackRef = useRef<HTMLDivElement>(null);
@@ -588,7 +707,6 @@ export function SearchPage() {
   const initializedFromUrlRef = useRef(false);
   const initialUrlHadAppFiltersRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
-  const cacheNoticeTimerRef = useRef<number | null>(null);
 
   const [urlInitialized, setUrlInitialized] = useState(false);
   const [prefsHydrated, setPrefsHydrated] = useState(false);
@@ -985,6 +1103,36 @@ export function SearchPage() {
   const workFormatKey = useMemo(() => [...workFormat].sort().join(","), [workFormat]);
   const labelsKey = useMemo(() => [...labels].sort().join(","), [labels]);
 
+  const searchBulkIdentityKey = useMemo(
+    () =>
+      [
+        text,
+        excludedText,
+        searchFieldsKey,
+        selectedAreaIdsKey,
+        employmentFormKey,
+        experienceKey,
+        workFormatKey,
+        labelsKey,
+        String(withStatedSalary),
+        salaryAmount,
+        currencyResolved,
+      ].join("\u001e"),
+    [
+      text,
+      excludedText,
+      searchFieldsKey,
+      selectedAreaIdsKey,
+      employmentFormKey,
+      experienceKey,
+      workFormatKey,
+      labelsKey,
+      withStatedSalary,
+      salaryAmount,
+      currencyResolved,
+    ],
+  );
+
   snapshotRef.current = {
     text,
     excludedText,
@@ -997,7 +1145,88 @@ export function SearchPage() {
     withStatedSalary,
     salaryAmount,
     currencyResolved,
+    titleLocalExcludes: vacancyTitleLocalExcludes,
   };
+
+  /** Bulk raw list does not depend on which phrases are excluded (hh body omits them); only on/off matters. */
+  const hasTitleLocalExcludes = vacancyTitleLocalExcludes.length > 0;
+
+  useEffect(() => {
+    if (!hasTitleLocalExcludes) {
+      setTitleFilterBulkLoading(false);
+      setTitleFilterBulkRaw([]);
+      setTitleFilterBulkError(null);
+      setTitleFilterClientPage(0);
+      return;
+    }
+    if (found == null || pages == null || found <= 0) return;
+    if (found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS) {
+      setTitleFilterBulkLoading(false);
+      setTitleFilterBulkRaw([]);
+      setTitleFilterBulkError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const rid = searchRequestIdRef.current;
+
+    void (async () => {
+      setTitleFilterBulkLoading(true);
+      setTitleFilterBulkError(null);
+      const snap: SearchSnapshot = { ...snapshotRef.current };
+      const seed = lastPageApiItemsRef.current;
+      let acc = [...seed];
+      setTitleFilterBulkRaw(acc);
+
+      const maxRaw = Math.min(found, HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS);
+      const pp = VACANCY_LIST_PAGE_SIZE;
+      const pagesNeeded = Math.min(pages, Math.max(1, Math.ceil(maxRaw / pp)));
+
+      try {
+        for (let p = 1; p < pagesNeeded; p++) {
+          if (cancelled || rid !== searchRequestIdRef.current) return;
+          await sleep(200);
+          const body = buildVacancyListRequestBody(snap, p, pp);
+          const res = await fetch("/api/hh/vacancies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const raw = await res.json();
+          if (cancelled || rid !== searchRequestIdRef.current) return;
+          if (!res.ok) {
+            const msg =
+              typeof raw?.description === "string"
+                ? raw.description
+                : typeof raw?.error === "string"
+                  ? raw.error
+                  : `Ошибка ${res.status}`;
+            throw new Error(msg);
+          }
+          const chunk = (raw.items ?? []) as VacancyItem[];
+          acc = mergeVacancyItemsDedupe(acc, chunk);
+          setTitleFilterBulkRaw([...acc]);
+          if (chunk.length < pp) break;
+        }
+        if (!cancelled && rid === searchRequestIdRef.current) {
+          setTitleFilterBulkError(null);
+        }
+      } catch (e) {
+        if (!cancelled && rid === searchRequestIdRef.current) {
+          setTitleFilterBulkError(e instanceof Error ? e.message : "Ошибка догрузки");
+          setTitleFilterBulkRaw([]);
+        }
+      } finally {
+        if (!cancelled && rid === searchRequestIdRef.current) {
+          setTitleFilterBulkLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchBulkIdentityKey, found, pages, hasTitleLocalExcludes]);
 
   const runSearch = useCallback(async (nextPage: number, overrides?: Partial<SearchSnapshot>) => {
     const s = { ...snapshotRef.current, ...overrides };
@@ -1018,28 +1247,7 @@ export function SearchPage() {
     setPendingResultsPage(nextPage);
     setSearching(true);
     try {
-      const areaIds = [...s.selectedAreaIds];
-      const excluded = s.excludedText.trim();
-      const body = {
-        text: s.text,
-        excludedText: excluded || undefined,
-        searchFields:
-          s.searchFields.length === 0 ||
-          (s.searchFields.length === 3 &&
-            DEFAULT_VACANCY_SEARCH_FIELDS.every((f) => s.searchFields.includes(f)))
-            ? undefined
-            : s.searchFields,
-        areaIds,
-        employmentForm: [...s.employmentForm],
-        experience: s.experience.size ? [...s.experience] : undefined,
-        workFormat: [...s.workFormat],
-        labels: [...s.labels],
-        withStatedSalary: s.withStatedSalary || undefined,
-        salary: hasSalary ? salaryNum : undefined,
-        currency_code: hasSalary ? s.currencyResolved : undefined,
-        page: nextPage,
-        perPage: 50,
-      };
+      const body = buildVacancyListRequestBody(s, nextPage, VACANCY_LIST_PAGE_SIZE);
       const res = await fetch("/api/hh/vacancies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1057,10 +1265,22 @@ export function SearchPage() {
         throw new Error(msg);
       }
       const nextItems = (raw.items ?? []) as VacancyItem[];
-      setFound(typeof raw.found === "number" ? raw.found : null);
+      lastPageApiItemsRef.current = nextItems;
+      const foundNum = typeof raw.found === "number" ? raw.found : null;
+      setFound(foundNum);
       setPages(typeof raw.pages === "number" ? raw.pages : null);
       setPage(nextPage);
-      setItems(nextItems);
+      setLastPageApiItems(nextItems);
+      if (
+        nextPage === 0 &&
+        snapshotRef.current.titleLocalExcludes.length > 0 &&
+        foundNum != null &&
+        foundNum <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS
+      ) {
+        setTitleFilterClientPage(0);
+      }
+      setCacheDetailsNotice(null);
+      setCacheDetailsError(null);
     } catch (e) {
       if (reqId === searchRequestIdRef.current) {
         setSearchError(e instanceof Error ? e.message : "Ошибка поиска");
@@ -1081,11 +1301,27 @@ export function SearchPage() {
 
   const goToResultsPage = useCallback(
     (nextPage: number) => {
+      if (vacancyTitleLocalExcludes.length > 0) {
+        const heavy =
+          found != null &&
+          found > 0 &&
+          found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS;
+        if (!heavy) {
+          void runSearch(nextPage).then(() => {
+            scrollResultsIntoView();
+          });
+          return;
+        }
+        if (titleFilterBulkLoading) return;
+        setTitleFilterClientPage(nextPage);
+        scrollResultsIntoView();
+        return;
+      }
       void runSearch(nextPage).then(() => {
         scrollResultsIntoView();
       });
     },
-    [runSearch, scrollResultsIntoView],
+    [runSearch, scrollResultsIntoView, vacancyTitleLocalExcludes.length, titleFilterBulkLoading, found],
   );
 
   useEffect(() => {
@@ -1136,6 +1372,7 @@ export function SearchPage() {
     setWithStatedSalary(parsed.withStatedSalary);
     setSalaryAmount(parsed.salaryAmount);
     setCurrency(parsed.currency_code);
+    setVacancyTitleLocalExcludes(parsed.titleLocalExcludes);
     setUrlInitialized(true);
   }, [allowedEmploymentForm, allowedExperience, allowedWorkFormat, areasBundle, dicts, ruSubjectIds]);
 
@@ -1186,6 +1423,7 @@ export function SearchPage() {
             setWithStatedSalary(loaded.withStatedSalary);
             setSalaryAmount(loaded.salaryAmount);
             setCurrency(loaded.currency_code);
+            setVacancyTitleLocalExcludes(loaded.titleLocalExcludes);
           }
         }
       } catch (e) {
@@ -1233,18 +1471,18 @@ export function SearchPage() {
     withStatedSalary,
     salaryAmount,
     currencyResolved,
+    vacancyTitleLocalExcludesKey,
   ]);
 
   useEffect(
     () => () => {
       if (copyResetTimerRef.current != null) window.clearTimeout(copyResetTimerRef.current);
-      if (cacheNoticeTimerRef.current != null) window.clearTimeout(cacheNoticeTimerRef.current);
     },
     [],
   );
 
   const openInHeadHunter = useCallback(() => {
-    const params = buildVacancyAppUrlSearchParams(snapshotRef.current);
+    const params = vacancyAppSearchParamsForHhWebsite(snapshotRef.current);
     params.delete("page");
     params.delete("per_page");
     const url = `https://hh.ru/search/vacancy?${params.toString()}`;
@@ -1290,6 +1528,7 @@ export function SearchPage() {
     setSavePrefsError(null);
     setText("");
     setExcludedText("");
+    setVacancyTitleLocalExcludes([]);
     setSearchFieldIds(new Set());
     setSelectedAreaIds(new Set());
     setRussiaAll(false);
@@ -1312,6 +1551,7 @@ export function SearchPage() {
       withStatedSalary: false,
       salaryAmount: "",
       currencyResolved: "",
+      titleLocalExcludes: [],
     };
     queueMicrotask(() => void runSearch(0, emptyOverride));
   }, [runSearch]);
@@ -1351,21 +1591,17 @@ export function SearchPage() {
     }
   }, [savePreferences]);
 
-  const CACHE_DETAILS_NOTICE_MS = 12_000;
-
+  /** Save-result banner stays until the next successful HH vacancy list fetch (`runSearch`). */
   const showCacheDetailsNotice = useCallback((message: string) => {
     setCacheDetailsError(null);
     setCacheDetailsNotice(message);
-    if (cacheNoticeTimerRef.current != null) window.clearTimeout(cacheNoticeTimerRef.current);
-    cacheNoticeTimerRef.current = window.setTimeout(() => {
-      setCacheDetailsNotice(null);
-      cacheNoticeTimerRef.current = null;
-    }, CACHE_DETAILS_NOTICE_MS);
   }, []);
 
   const confirmCacheVacancyDetails = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
-    const vacancyIds = items.map((it) => it.id).filter((id) => /^\d+$/.test(id));
+    const listForSave =
+      vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
+    const vacancyIds = listForSave.map((it) => it.id).filter((id) => /^\d+$/.test(id));
     if (vacancyIds.length === 0) {
       setCacheDetailsError("No vacancies on this page to save.");
       return;
@@ -1375,27 +1611,95 @@ export function SearchPage() {
     setCacheDetailsUnlockSlider(0);
     setCacheDetailsBusy(true);
     try {
-      const res = await fetch("/api/me/vacancy-details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vacancyIds,
-          searchFound: found ?? undefined,
-        }),
-      });
-      const raw = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        saved?: number;
-        requested?: number;
-        failed?: { id: string; status: number; detail?: string }[];
+      const chunks = chunkVacancyIdsForSave(vacancyIds, VACANCY_DETAILS_SAVE_MAX_IDS_PER_REQUEST);
+      let saved = 0;
+      const failedByStatusAgg: Record<string, number> = {};
+      const requested = vacancyIds.length;
+      const failedById = new Map<string, { id: string; status: number; detail?: string }>();
+
+      const mergeFailedByStatus = (raw: { failedByStatus?: Record<string, number> }) => {
+        if (!raw.failedByStatus || typeof raw.failedByStatus !== "object") return;
+        for (const [k, n] of Object.entries(raw.failedByStatus)) {
+          if (typeof n === "number" && n > 0) {
+            failedByStatusAgg[k] = (failedByStatusAgg[k] ?? 0) + n;
+          }
+        }
       };
-      if (!res.ok) {
-        const msg = typeof raw?.error === "string" ? raw.error : `Request failed (${res.status})`;
-        throw new Error(msg);
+
+      const runVacancyDetailChunks = async (
+        idChunks: string[][],
+        mode: "replaceFirst" | "appendOnly",
+      ) => {
+        for (let i = 0; i < idChunks.length; i++) {
+          if (i > 0) {
+            await new Promise<void>((r) => {
+              window.setTimeout(r, 4500);
+            });
+          }
+          const chunk = idChunks[i]!;
+          const body: Record<string, unknown> = { vacancyIds: chunk };
+          if (mode === "replaceFirst") {
+            if (i === 0) body.searchFound = found ?? undefined;
+            else body.replaceSnapshot = false;
+          } else {
+            body.replaceSnapshot = false;
+          }
+          const res = await fetch("/api/me/vacancy-details", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const raw = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            saved?: number;
+            failed?: { id: string; status: number; detail?: string }[];
+            savedIds?: string[];
+            failedByStatus?: Record<string, number>;
+          };
+          if (!res.ok) {
+            const msg = typeof raw?.error === "string" ? raw.error : `Request failed (${res.status})`;
+            throw new Error(msg);
+          }
+          saved += typeof raw.saved === "number" ? raw.saved : 0;
+          mergeFailedByStatus(raw);
+          if (Array.isArray(raw.savedIds)) {
+            for (const id of raw.savedIds) failedById.delete(String(id));
+          }
+          if (Array.isArray(raw.failed)) {
+            for (const f of raw.failed) failedById.set(f.id, f);
+          }
+        }
+      };
+
+      await runVacancyDetailChunks(chunks, "replaceFirst");
+
+      const RETRYABLE = new Set([429, 502, 503, 504, 0]);
+      const retryIdList = [
+        ...new Set(
+          [...failedById.values()]
+            .filter((f) => RETRYABLE.has(f.status))
+            .map((f) => f.id),
+        ),
+      ];
+
+      if (retryIdList.length > 0) {
+        showCacheDetailsNotice(
+          `Rate limits hit for ${retryIdList.length} listings. Waiting 30s, then retrying those without clearing your cache…`,
+        );
+        await new Promise<void>((r) => {
+          window.setTimeout(r, 30_000);
+        });
+        const retryChunks = chunkVacancyIdsForSave(retryIdList, VACANCY_DETAILS_SAVE_MAX_IDS_PER_REQUEST);
+        await runVacancyDetailChunks(retryChunks, "appendOnly");
       }
-      const saved = typeof raw.saved === "number" ? raw.saved : 0;
-      const requested = typeof raw.requested === "number" ? raw.requested : vacancyIds.length;
-      const failed = Array.isArray(raw.failed) ? raw.failed : [];
+
+      const failed = [...failedById.values()];
+      const rateLimited = failedByStatusAgg["429"] ?? 0;
+      const rateLimitHint =
+        failed.length > 0 && rateLimited >= Math.ceil(failed.length * 0.45)
+          ? " A 30s pause and automatic second pass for rate-limited IDs already ran."
+          : "";
+
       if (failed.length === 0) {
         showCacheDetailsNotice(
           saved === requested
@@ -1407,21 +1711,21 @@ export function SearchPage() {
           failed.length <= 3
             ? ` Some failed: ${failed.map((f) => f.id).join(", ")}.`
             : ` ${failed.length} listings could not be fetched.`;
-        showCacheDetailsNotice(
-          `Saved ${saved} of ${requested}.${failHint}`,
-        );
+        showCacheDetailsNotice(`Saved ${saved} of ${requested}.${failHint}${rateLimitHint}`);
       }
     } catch (e) {
-      if (cacheNoticeTimerRef.current != null) {
-        window.clearTimeout(cacheNoticeTimerRef.current);
-        cacheNoticeTimerRef.current = null;
-      }
       setCacheDetailsNotice(null);
       setCacheDetailsError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setCacheDetailsBusy(false);
     }
-  }, [items, found, showCacheDetailsNotice]);
+  }, [
+    vacancyTitleLocalExcludes.length,
+    titleFilteredFullList,
+    lastPageApiItems,
+    found,
+    showCacheDetailsNotice,
+  ]);
 
   const restorePreferences = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
@@ -1463,6 +1767,7 @@ export function SearchPage() {
       setWithStatedSalary(loaded.withStatedSalary);
       setSalaryAmount(loaded.salaryAmount);
       setCurrency(loaded.currency_code);
+      setVacancyTitleLocalExcludes(loaded.titleLocalExcludes);
       const overrideSnapshot: Partial<SearchSnapshot> = {
         text: loaded.text,
         excludedText: loaded.excludedText,
@@ -1475,6 +1780,7 @@ export function SearchPage() {
         withStatedSalary: loaded.withStatedSalary,
         salaryAmount: loaded.salaryAmount,
         currencyResolved: loaded.currency_code,
+        titleLocalExcludes: loaded.titleLocalExcludes,
       };
       queueMicrotask(() => void runSearch(0, overrideSnapshot));
     } catch (e) {
@@ -1509,6 +1815,7 @@ export function SearchPage() {
       setWithStatedSalary(parsed.withStatedSalary);
       setSalaryAmount(parsed.salaryAmount);
       setCurrency(parsed.currency_code);
+      setVacancyTitleLocalExcludes(parsed.titleLocalExcludes);
       setImportError(null);
       setIsImportOpen(false);
       const overrideSnapshot: Partial<SearchSnapshot> = {
@@ -1523,6 +1830,7 @@ export function SearchPage() {
         withStatedSalary: parsed.withStatedSalary,
         salaryAmount: parsed.salaryAmount,
         currencyResolved: parsed.currency_code,
+        titleLocalExcludes: parsed.titleLocalExcludes,
       };
       queueMicrotask(() => void runSearch(0, overrideSnapshot));
     } catch {
@@ -1580,8 +1888,37 @@ export function SearchPage() {
     return <p className="muted">Loading dictionaries…</p>;
   }
 
-  const showResultsPagination =
-    found != null && found > 0 && pages != null && pages > 1;
+  const listPagingBusy = searching || titleFilterBulkLoading;
+  const vacanciesForDetailsModal =
+    vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
+
+  const showHhResultsPagination =
+    found != null &&
+    found > 0 &&
+    pages != null &&
+    pages > 1 &&
+    (vacancyTitleLocalExcludes.length === 0 ||
+      found > HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS);
+
+  const showTitleClientPagination =
+    vacancyTitleLocalExcludes.length > 0 &&
+    found != null &&
+    found > 0 &&
+    found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS &&
+    titleFilterClientPageCount > 1 &&
+    !titleFilterBulkLoading;
+
+  const showResultsPagination = showHhResultsPagination || showTitleClientPagination;
+
+  /** Client slice paging only when we bulk-loaded all pages (found ≤ cap). If found > cap, HH list paging applies. */
+  const titleFilterUsesClientPaging =
+    vacancyTitleLocalExcludes.length > 0 &&
+    found != null &&
+    found > 0 &&
+    found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS;
+
+  const resultsPaginationPage = titleFilterUsesClientPaging ? titleFilterClientPage : resultsPageForUi;
+  const resultsPaginationPages = titleFilterUsesClientPaging ? titleFilterClientPageCount : (pages ?? 1);
 
   return (
     <div className="layout">
@@ -1625,6 +1962,15 @@ export function SearchPage() {
                   autoComplete="off"
                 />
               </label>
+            </div>
+            <div className="text-search-block__exclude">
+              <FreeTextChipsField
+                label="Hide if title contains"
+                values={vacancyTitleLocalExcludes}
+                onChange={setVacancyTitleLocalExcludes}
+                placeholder="e.g. intern — Enter to add"
+                clearable
+              />
             </div>
             <div className="filters-stack__job-fields-row filters-stack__job-fields-row--experience">
               <MultiSelectChips
@@ -2167,7 +2513,7 @@ export function SearchPage() {
                 disabled={cacheDetailsUnlockSlider < VAULT_SLIDER_THRESHOLD}
                 onClick={() => void confirmCacheVacancyDetails()}
               >
-                {`Fetch and save details for ${items.length} position${items.length === 1 ? "" : "s"}`}
+                {`Fetch and save details for ${vacanciesForDetailsModal.length} position${vacanciesForDetailsModal.length === 1 ? "" : "s"}`}
               </button>
             </div>
           </div>
@@ -2177,7 +2523,29 @@ export function SearchPage() {
       <section ref={resultsSectionRef} className="panel results">
         {found != null ? (
           <div className="results-toolbar">
-            <p className="muted small results-toolbar__count">Найдено: {found}</p>
+            <div className="results-toolbar__counts">
+              <p className="muted small results-toolbar__count">
+                Найдено:{" "}
+                {vacancyTitleLocalExcludes.length > 0 &&
+                found != null &&
+                found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS
+                  ? titleFilteredFullList.length
+                  : found}
+                {vacancyTitleLocalExcludes.length > 0 &&
+                found != null &&
+                found <= HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS &&
+                titleFilterBulkLoading
+                  ? " (догружаем с hh.ru…)"
+                  : null}
+              </p>
+              {titleFilterLightModeFraction ? (
+                <p className="muted small results-toolbar__count-sub">
+                  {titleFilterLightModeFraction.denom > 0
+                    ? `${titleFilterLightModeFraction.num}/${titleFilterLightModeFraction.denom}`
+                    : String(titleFilterLightModeFraction.num)}
+                </p>
+              ) : null}
+            </div>
             <div className="results-toolbar__actions">
               {isSupabaseConfigured() && items.length > 0 ? (
                 <div
@@ -2191,7 +2559,7 @@ export function SearchPage() {
                   <button
                     type="button"
                     className="secondary results-toolbar__cache-btn"
-                    disabled={cacheDetailsBusy || searching || tooManyResultsForCache}
+                    disabled={cacheDetailsBusy || listPagingBusy || tooManyResultsForCache}
                     aria-busy={cacheDetailsBusy}
                     aria-label={
                       cacheDetailsBusy ? "Saving vacancy details to your account" : undefined
@@ -2216,11 +2584,11 @@ export function SearchPage() {
               ) : null}
               {showResultsPagination ? (
                 <ResultsPaginationCompact
-                  searching={searching}
-                  page={resultsPageForUi}
-                  pages={pages}
-                  onPrev={() => goToResultsPage(resultsPageForUi - 1)}
-                  onNext={() => goToResultsPage(resultsPageForUi + 1)}
+                  searching={listPagingBusy}
+                  page={resultsPaginationPage}
+                  pages={resultsPaginationPages}
+                  onPrev={() => goToResultsPage(resultsPaginationPage - 1)}
+                  onNext={() => goToResultsPage(resultsPaginationPage + 1)}
                 />
               ) : null}
             </div>
@@ -2229,7 +2597,7 @@ export function SearchPage() {
           <p className="muted small">
             {searching
               ? "Updating…"
-              : "Filters run automatically. Text and exclude fields apply when the field loses focus."}
+              : `Filters run automatically. Text and hh «Exclude words» apply on blur. Title chips: if hh finds ≤${HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS} matches, all pages load then filter locally; otherwise only the current page is filtered.`}
           </p>
         )}
         {(() => {
@@ -2257,6 +2625,11 @@ export function SearchPage() {
             </div>
           );
         })()}
+        {titleFilterBulkError ? (
+          <p className="error small" role="alert">
+            {titleFilterBulkError}
+          </p>
+        ) : null}
         <ul className="vacancy-list">
           {items.map((it) => (
             <li key={it.id}>
@@ -2266,9 +2639,9 @@ export function SearchPage() {
         </ul>
         {showResultsPagination ? (
           <ResultsPaginationNumeric
-            searching={searching}
-            page={resultsPageForUi}
-            pages={pages}
+            searching={listPagingBusy}
+            page={resultsPaginationPage}
+            pages={resultsPaginationPages}
             onGoToPage={(p) => goToResultsPage(p)}
           />
         ) : null}

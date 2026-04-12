@@ -5,6 +5,12 @@ import {
 } from "./vacancySearchDefaults";
 
 /**
+ * App-only query param (repeated): client-side substring excludes for vacancy titles.
+ * Never pass to hh.ru Open API — use {@link vacancyAppSearchParamsForHhWebsite} for hh.ru links.
+ */
+export const VACANCY_APP_TITLE_LOCAL_QUERY_KEY = "title_not";
+
+/**
  * Query keys used in the **app** URL for vacancy search filters (hh.ru web-style names).
  * Not the same as GET /vacancies API keys (e.g. API uses `currency`, not `currency_code`).
  */
@@ -19,7 +25,27 @@ export const VACANCY_APP_SEARCH_QUERY_KEYS = new Set<string>([
   "label",
   "salary",
   "currency_code",
+  VACANCY_APP_TITLE_LOCAL_QUERY_KEY,
 ]);
+
+const MAX_TITLE_LOCAL_EXCLUDE_PHRASES = 48;
+const MAX_TITLE_LOCAL_EXCLUDE_CHARS = 200;
+
+function normalizeTitleLocalExcludesFromUrl(raw: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    let t = r.trim();
+    if (!t) continue;
+    if (t.length > MAX_TITLE_LOCAL_EXCLUDE_CHARS) t = t.slice(0, MAX_TITLE_LOCAL_EXCLUDE_CHARS);
+    const lk = t.toLowerCase();
+    if (seen.has(lk)) continue;
+    seen.add(lk);
+    out.push(t);
+    if (out.length >= MAX_TITLE_LOCAL_EXCLUDE_PHRASES) break;
+  }
+  return out;
+}
 
 export function isVacancyAppSearchQueryKey(key: string): boolean {
   return VACANCY_APP_SEARCH_QUERY_KEYS.has(key);
@@ -60,6 +86,8 @@ export type VacancyAppUrlParsedFilters = {
   withStatedSalary: boolean;
   salaryAmount: string;
   currency_code: string;
+  /** Parsed from repeated `title_not`; app-only, not hh.ru API. */
+  titleLocalExcludes: string[];
 };
 
 export type VacancyAppUrlAllowedIds = {
@@ -112,6 +140,7 @@ export function parseVacancyAppSearchFromUrlSearchParams(
     withStatedSalary,
     salaryAmount,
     currency_code: params.get("currency_code")?.trim().toUpperCase() ?? "",
+    titleLocalExcludes: normalizeTitleLocalExcludesFromUrl(params.getAll(VACANCY_APP_TITLE_LOCAL_QUERY_KEY)),
   };
 }
 
@@ -128,6 +157,8 @@ export type VacancyAppUrlWriteState = {
   withStatedSalary: boolean;
   salaryAmount: string;
   currencyResolved: string;
+  /** App-only; each value becomes one `title_not` query param (not sent to hh.ru API). */
+  titleLocalExcludes: readonly string[];
 };
 
 export function buildVacancyAppUrlSearchParams(snapshot: VacancyAppUrlWriteState): URLSearchParams {
@@ -153,5 +184,18 @@ export function buildVacancyAppUrlSearchParams(snapshot: VacancyAppUrlWriteState
     params.set("salary", snapshot.salaryAmount);
     params.set("currency_code", snapshot.currencyResolved);
   }
+
+  for (const phrase of snapshot.titleLocalExcludes) {
+    const t = String(phrase).trim();
+    if (t) params.append(VACANCY_APP_TITLE_LOCAL_QUERY_KEY, t);
+  }
+
   return params;
+}
+
+/** Same as {@link buildVacancyAppUrlSearchParams} but strips app-only keys before opening hh.ru in the browser. */
+export function vacancyAppSearchParamsForHhWebsite(snapshot: VacancyAppUrlWriteState): URLSearchParams {
+  const p = buildVacancyAppUrlSearchParams(snapshot);
+  p.delete(VACANCY_APP_TITLE_LOCAL_QUERY_KEY);
+  return p;
 }

@@ -325,8 +325,84 @@ code {
   line-height: 1.35;
 }
 
-.text-search-block__exclude-hint {
-  margin: 0.4rem 0 0;
+/* Free-text chips (Enter): same shell as MultiSelectChips, inline input */
+.free-text-chips-field__trigger {
+  cursor: text;
+}
+
+.free-text-chips-field__pill {
+  cursor: default;
+}
+
+.free-text-chips-field__clear {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.15rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.free-text-chips-field__clear:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* Match Exclude focus: single border change, no accent ring */
+.panel.filters .field--text-search-block .free-text-chips-field__trigger:focus-within {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 62%, var(--muted) 38%);
+}
+
+.panel.filters .field--text-search-block .free-text-chips-field__inner {
+  border: none;
+  box-shadow: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.panel.filters .field--text-search-block .free-text-chips-field__inner::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+/* Hide-if-title chips: grow vertically; chips + input wrap so there is always room to type */
+.panel.filters .field--text-search-block .free-text-chips-field .multi-select-chips__trigger {
+  min-height: 32px;
+  height: auto;
+  max-height: min(12rem, 40vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-items: flex-start;
+  padding-top: 0.22rem;
+  padding-bottom: 0.22rem;
+}
+
+.panel.filters .field--text-search-block .free-text-chips-field .multi-select-chips__inner {
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  row-gap: 0.28rem;
+  overflow-x: hidden;
+  overflow-y: visible;
+  max-height: none;
+}
+
+.panel.filters .field--text-search-block .free-text-chips-field .free-text-chips-field__clear {
+  align-self: flex-start;
+  margin-top: 0.18rem;
 }
 
 /* Salary: amount + currency, then «Salary specified» checkbox on the next line */
@@ -632,6 +708,44 @@ input:not([type]) {
 }
 
 .panel.filters .field--text-search-block label > input:is([type="text"], [type="search"], :not([type]))::placeholder {
+  color: color-mix(in srgb, var(--muted) 62%, var(--border));
+  opacity: 1;
+}
+
+/*
+ * Chips-row text field: must come *after* global `input[type="text"]` or border /
+ * padding / width:100% draw a second box inside the trigger (same as Exclude row).
+ */
+.panel.filters .field--text-search-block input.free-text-chips-field__input {
+  /* Large grow so on a wrapped row the field stretches to full width */
+  flex: 999 1 7rem;
+  min-width: 7rem;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.28rem 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1rem;
+  line-height: 1.2;
+  font-weight: 500;
+  color: var(--muted);
+  outline: none;
+  min-height: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.panel.filters .field--text-search-block input.free-text-chips-field__input:focus,
+.panel.filters .field--text-search-block input.free-text-chips-field__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+
+.panel.filters .field--text-search-block input.free-text-chips-field__input::placeholder {
   color: color-mix(in srgb, var(--muted) 62%, var(--border));
   opacity: 1;
 }
@@ -1653,8 +1767,21 @@ button.secondary:disabled {
   gap: 0.5rem 0.75rem;
 }
 
+.results-toolbar__counts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
 .results-toolbar__count {
   margin: 0;
+}
+
+.results-toolbar__count-sub {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
 
 .results-toolbar__actions {
