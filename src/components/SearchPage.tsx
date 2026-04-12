@@ -536,6 +536,9 @@ export function SearchPage() {
   const [currency, setCurrency] = useState("");
   const [withStatedSalary, setWithStatedSalary] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSavePrefsConfirmOpen, setIsSavePrefsConfirmOpen] = useState(false);
+  /** 0–100: «сейф» открыт только у правого края (случайное нажатие не сохранит). */
+  const [savePrefsUnlockSlider, setSavePrefsUnlockSlider] = useState(0);
   const [importUrl, setImportUrl] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
@@ -1291,8 +1294,10 @@ export function SearchPage() {
     queueMicrotask(() => void runSearch(0, emptyOverride));
   }, [runSearch]);
 
-  const savePreferences = useCallback(async () => {
-    if (!isSupabaseConfigured()) return;
+  const SAVE_PREFS_SLIDER_THRESHOLD = 94;
+
+  const savePreferences = useCallback(async (): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
     setSavePrefsError(null);
     setSavePrefsBusy(true);
     try {
@@ -1309,12 +1314,22 @@ export function SearchPage() {
           typeof raw?.error === "string" ? raw.error : `Save failed (${res.status})`;
         throw new Error(msg);
       }
+      return true;
     } catch (e) {
       setSavePrefsError(e instanceof Error ? e.message : "Save failed");
+      return false;
     } finally {
       setSavePrefsBusy(false);
     }
   }, []);
+
+  const confirmSavePreferences = useCallback(async () => {
+    const ok = await savePreferences();
+    if (ok) {
+      setIsSavePrefsConfirmOpen(false);
+      setSavePrefsUnlockSlider(0);
+    }
+  }, [savePreferences]);
 
   const restorePreferences = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
@@ -1824,12 +1839,17 @@ export function SearchPage() {
                   type="button"
                   className="secondary filters-actions-bar__btn filters-actions-bar__prefs-btn"
                   disabled={savePrefsBusy}
-                  onClick={() => void savePreferences()}
+                  title="Confirm in the dialog — slide the dial to unlock save."
+                  onClick={() => {
+                    setSavePrefsError(null);
+                    setSavePrefsUnlockSlider(0);
+                    setIsSavePrefsConfirmOpen(true);
+                  }}
                 >
                   <span className="filters-actions-bar__btn-icon" aria-hidden>
                     <FiltersBarIconSave />
                   </span>
-                  <span>{savePrefsBusy ? "Saving…" : "Save preferences"}</span>
+                  <span>Save preferences</span>
                 </button>
               </div>
             ) : null}
@@ -1886,6 +1906,91 @@ export function SearchPage() {
               </button>
               <button type="button" className="primary" onClick={applyImportedUrl}>
                 Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSavePrefsConfirmOpen ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!savePrefsBusy) {
+              setIsSavePrefsConfirmOpen(false);
+              setSavePrefsUnlockSlider(0);
+            }
+          }}
+        >
+          <div
+            className="modal modal--save-prefs"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-prefs-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="save-prefs-dialog-title">Lock in your save</h2>
+            <p className="muted small modal__lede">
+              Your saved filters on the server will be replaced with what you see in the form now.
+              Drag the dial all the way to the right — like opening a small safe — then tap save.
+            </p>
+            <div className="save-prefs-vault" aria-hidden>
+              <div
+                className="save-prefs-vault__dial"
+                style={{ transform: `rotate(${savePrefsUnlockSlider * 2.5 - 125}deg)` }}
+              />
+            </div>
+            <div className="save-prefs-unlock-wrap">
+              <label className="save-prefs-unlock__label" htmlFor="save-prefs-unlock-slider">
+                Slide to unlock save
+              </label>
+              <input
+                id="save-prefs-unlock-slider"
+                className="save-prefs-unlock"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={savePrefsUnlockSlider}
+                disabled={savePrefsBusy}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={savePrefsUnlockSlider}
+                aria-valuetext={
+                  savePrefsUnlockSlider >= SAVE_PREFS_SLIDER_THRESHOLD
+                    ? "Unlocked, ready to save"
+                    : `${savePrefsUnlockSlider} percent, keep sliding right to unlock`
+                }
+                onChange={(e) => setSavePrefsUnlockSlider(Number(e.target.value))}
+              />
+              <p className="save-prefs-unlock__hint muted small" aria-live="polite">
+                {savePrefsUnlockSlider >= SAVE_PREFS_SLIDER_THRESHOLD
+                  ? "Unlocked — you can overwrite on the server."
+                  : "Not yet — slide further right."}
+              </p>
+            </div>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={savePrefsBusy}
+                onClick={() => {
+                  setIsSavePrefsConfirmOpen(false);
+                  setSavePrefsUnlockSlider(0);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={
+                  savePrefsBusy || savePrefsUnlockSlider < SAVE_PREFS_SLIDER_THRESHOLD
+                }
+                onClick={() => void confirmSavePreferences()}
+              >
+                {savePrefsBusy ? "Saving…" : "Overwrite on server"}
               </button>
             </div>
           </div>

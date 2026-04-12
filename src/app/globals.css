@@ -1467,6 +1467,113 @@ button.secondary:disabled {
   color: color-mix(in srgb, var(--text) 54%, var(--muted));
 }
 
+.modal__lede {
+  margin: -0.35rem 0 0;
+  line-height: 1.45;
+}
+
+.modal--save-prefs .modal__actions {
+  margin-top: 1rem;
+}
+
+.save-prefs-vault {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0 0.15rem;
+}
+
+.save-prefs-vault__dial {
+  width: 3.1rem;
+  height: 3.1rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--border) 55%, var(--muted));
+  background: conic-gradient(
+    from -36deg,
+    color-mix(in srgb, var(--panel) 88%, var(--border)) 0 72deg,
+    transparent 72deg 80deg,
+    color-mix(in srgb, var(--panel) 88%, var(--border)) 80deg 152deg,
+    transparent 152deg 160deg,
+    color-mix(in srgb, var(--panel) 88%, var(--border)) 160deg 232deg,
+    transparent 232deg 240deg,
+    color-mix(in srgb, var(--panel) 88%, var(--border)) 240deg 312deg,
+    transparent 312deg 320deg,
+    color-mix(in srgb, var(--panel) 88%, var(--border)) 320deg 360deg
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .save-prefs-vault__dial {
+    transition: transform 0.06s linear;
+  }
+}
+
+.save-prefs-unlock-wrap {
+  margin-top: 0.5rem;
+}
+
+.save-prefs-unlock__label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.save-prefs-unlock {
+  display: block;
+  width: 100%;
+  height: 1.75rem;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.save-prefs-unlock:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.save-prefs-unlock::-webkit-slider-runnable-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 65%, var(--panel));
+  border: 1px solid var(--border);
+}
+
+.save-prefs-unlock::-moz-range-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 65%, var(--panel));
+  border: 1px solid var(--border);
+}
+
+.save-prefs-unlock::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 1.85rem;
+  height: 1.35rem;
+  margin-top: calc((0.55rem - 1.35rem) / 2 - 1px);
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 82%, var(--muted));
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+}
+
+.save-prefs-unlock::-moz-range-thumb {
+  width: 1.85rem;
+  height: 1.35rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 82%, var(--muted));
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 12%, transparent);
+}
+
+.save-prefs-unlock__hint {
+  margin: 0.4rem 0 0;
+  min-height: 1.25rem;
+}
+
 .modal textarea {
   color: color-mix(in srgb, var(--text) 85%, var(--muted));
 }
