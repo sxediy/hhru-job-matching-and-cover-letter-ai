@@ -531,9 +531,45 @@ const VAULT_SLIDER_THRESHOLD = 94;
  */
 const VACANCY_LIST_PAGE_SIZE = 50;
 
-const CACHE_LOAD_DETAILS_TOOLTIP_OK =
-  "Stores full vacancy data from hh.ru vacancy pages for visible listings (hidden are skipped).";
+const CACHE_SYNC_DETAILS_TOOLTIP_OK =
+  "Syncs full descriptions for visible listings: fetches only missing from hh.ru, skips already saved, removes hidden.";
 const CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED = `Too many results for this action. Need no more than ${HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS}.`;
+
+function formatVacancyDetailsSyncNotice(
+  saved: number,
+  requested: number,
+  skippedCached: number,
+  removed: number,
+): string {
+  const removedOnly =
+    removed === 1
+      ? "Removed saved full description for 1 vacancy."
+      : `Removed saved full descriptions for ${removed} vacancies.`;
+  const removedExtra =
+    removed === 1
+      ? " Cleared saved description for 1 vacancy that's no longer in this search."
+      : ` Cleared saved descriptions for ${removed} vacancies that are no longer in this search.`;
+
+  if (saved === requested) {
+    return removed > 0
+      ? `Synced full descriptions for ${saved} ${saved === 1 ? "vacancy" : "vacancies"}.${removedExtra}`
+      : `Synced full descriptions for ${saved} ${saved === 1 ? "vacancy" : "vacancies"}.`;
+  }
+
+  if (saved === 0 && removed === 0 && skippedCached === requested) {
+    return "Saved descriptions already match your current list.";
+  }
+
+  if (saved === 0 && removed > 0) {
+    return skippedCached > 0
+      ? `${removedOnly} Descriptions for the rest are already saved.`
+      : removedOnly;
+  }
+
+  const cachedHint =
+    skippedCached > 0 ? ` ${skippedCached} already had saved descriptions, skipped.` : "";
+  return `Synced ${saved} of ${requested} vacancies.${cachedHint}${removed > 0 ? removedExtra : ""}`;
+}
 
 function mergeVacancyItemsDedupe(prev: VacancyItem[], more: VacancyItem[]): VacancyItem[] {
   if (more.length === 0) return prev;
@@ -698,7 +734,7 @@ export function SearchPage() {
     return out;
   }, [items, hiddenVacancyIds, hiddenVacancyCards]);
 
-  /** Listings eligible for «Load full details» (same scope as HH bulk/page list, minus hidden). */
+  /** Listings eligible for «Sync details» (same scope as HH bulk/page list, minus hidden). */
   const vacanciesForDetailsSave = useMemo(() => {
     const list =
       vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
@@ -1745,16 +1781,19 @@ export function SearchPage() {
       .map((it) => it.id)
       .filter((id) => /^\d+$/.test(id));
     if (vacancyIds.length === 0) {
-      setCacheDetailsError("No vacancies on this page to save.");
+      setCacheDetailsError("No vacancies on this page to sync.");
       return;
     }
     setCacheDetailsError(null);
+    setCacheDetailsNotice(null);
     setIsCacheDetailsConfirmOpen(false);
     setCacheDetailsUnlockSlider(0);
     setCacheDetailsBusy(true);
     try {
       const chunks = chunkVacancyIdsForSave(vacancyIds, VACANCY_DETAILS_SAVE_MAX_IDS_PER_REQUEST);
       let saved = 0;
+      let skippedCached = 0;
+      let removed = 0;
       const failedByStatusAgg: Record<string, number> = {};
       const requested = vacancyIds.length;
       const failedById = new Map<string, { id: string; status: number; detail?: string }>();
@@ -1781,8 +1820,12 @@ export function SearchPage() {
           const chunk = idChunks[i]!;
           const body: Record<string, unknown> = { vacancyIds: chunk };
           if (mode === "replaceFirst") {
-            if (i === 0) body.searchFound = found ?? undefined;
-            else body.replaceSnapshot = false;
+            if (i === 0) {
+              body.searchFound = found ?? undefined;
+              body.snapshotVacancyIds = vacancyIds;
+            } else {
+              body.replaceSnapshot = false;
+            }
           } else {
             body.replaceSnapshot = false;
           }
@@ -1794,6 +1837,8 @@ export function SearchPage() {
           const raw = (await res.json().catch(() => ({}))) as {
             error?: string;
             saved?: number;
+            removed?: number;
+            skippedCached?: number;
             failed?: { id: string; status: number; detail?: string }[];
             savedIds?: string[];
             failedByStatus?: Record<string, number>;
@@ -1803,6 +1848,8 @@ export function SearchPage() {
             throw new Error(msg);
           }
           saved += typeof raw.saved === "number" ? raw.saved : 0;
+          skippedCached += typeof raw.skippedCached === "number" ? raw.skippedCached : 0;
+          removed += typeof raw.removed === "number" ? raw.removed : 0;
           mergeFailedByStatus(raw);
           if (Array.isArray(raw.savedIds)) {
             for (const id of raw.savedIds) failedById.delete(String(id));
@@ -1826,7 +1873,7 @@ export function SearchPage() {
 
       if (retryIdList.length > 0) {
         showCacheDetailsNotice(
-          `Rate limits hit for ${retryIdList.length} listings. Waiting 30s, then retrying those without clearing your cache…`,
+          `Rate limits hit for ${retryIdList.length} listings. Waiting 30s, then retrying those without clearing your saved details…`,
         );
         await new Promise<void>((r) => {
           window.setTimeout(r, 30_000);
@@ -1841,23 +1888,22 @@ export function SearchPage() {
         failed.length > 0 && rateLimited >= Math.ceil(failed.length * 0.45)
           ? " A 30s pause and automatic second pass for rate-limited IDs already ran."
           : "";
-
       if (failed.length === 0) {
         showCacheDetailsNotice(
-          saved === requested
-            ? `Saved full descriptions for ${saved} listing${saved === 1 ? "" : "s"}.`
-            : `Saved ${saved} of ${requested} listings.`,
+          formatVacancyDetailsSyncNotice(saved, requested, skippedCached, removed),
         );
       } else {
         const failHint =
           failed.length <= 3
             ? ` Some failed: ${failed.map((f) => f.id).join(", ")}.`
             : ` ${failed.length} listings could not be fetched.`;
-        showCacheDetailsNotice(`Saved ${saved} of ${requested}.${failHint}${rateLimitHint}`);
+        const base = formatVacancyDetailsSyncNotice(saved, requested, skippedCached, removed);
+        const sep = base.endsWith(".") ? "" : ".";
+        showCacheDetailsNotice(`${base}${sep}${failHint}${rateLimitHint}`);
       }
     } catch (e) {
       setCacheDetailsNotice(null);
-      setCacheDetailsError(e instanceof Error ? e.message : "Save failed");
+      setCacheDetailsError(e instanceof Error ? e.message : "Sync failed");
     } finally {
       setCacheDetailsBusy(false);
     }
@@ -2587,11 +2633,12 @@ export function SearchPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="cache-details-dialog-title">
-              Save full vacancy descriptions to your account for further analysis
+              Sync vacancy descriptions on your account
             </h2>
             <p className="muted small modal__lede">
-              We will load each vacancy page from hh.ru (one request per listing) and store the full
-              description on your account. Drag the dial all the way to the right, then confirm.
+              Fetches full descriptions from hh.ru only for listings not saved yet. Already saved
+              ones are skipped; hidden listings are removed from your account. Drag the dial all the
+              way to the right, then confirm.
             </p>
             <div className="save-prefs-vault" aria-hidden>
               <div
@@ -2601,7 +2648,7 @@ export function SearchPage() {
             </div>
             <div className="save-prefs-unlock-wrap">
               <label className="save-prefs-unlock__label" htmlFor="cache-details-unlock-slider">
-                Slide to unlock save
+                Slide to unlock sync
               </label>
               <input
                 id="cache-details-unlock-slider"
@@ -2616,14 +2663,14 @@ export function SearchPage() {
                 aria-valuenow={cacheDetailsUnlockSlider}
                 aria-valuetext={
                   cacheDetailsUnlockSlider >= VAULT_SLIDER_THRESHOLD
-                    ? "Unlocked, ready to save"
+                    ? "Unlocked, ready to sync"
                     : `${cacheDetailsUnlockSlider} percent, keep sliding right to unlock`
                 }
                 onChange={(e) => setCacheDetailsUnlockSlider(Number(e.target.value))}
               />
               <p className="save-prefs-unlock__hint muted small" aria-live="polite">
                 {cacheDetailsUnlockSlider >= VAULT_SLIDER_THRESHOLD
-                  ? "Unlocked — you can fetch and save."
+                  ? "Unlocked — ready to sync."
                   : "Not yet — slide further right."}
               </p>
             </div>
@@ -2646,7 +2693,7 @@ export function SearchPage() {
                 disabled={cacheDetailsUnlockSlider < VAULT_SLIDER_THRESHOLD}
                 onClick={() => void confirmCacheVacancyDetails()}
               >
-                {`Fetch and save details for ${vacanciesForDetailsSave.length} position${vacanciesForDetailsSave.length === 1 ? "" : "s"}`}
+                {`Sync details for ${vacanciesForDetailsSave.length} position${vacanciesForDetailsSave.length === 1 ? "" : "s"}`}
               </button>
             </div>
           </div>
@@ -2691,7 +2738,7 @@ export function SearchPage() {
                   data-tooltip={
                     tooManyResultsForCache
                       ? CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED
-                      : CACHE_LOAD_DETAILS_TOOLTIP_OK
+                      : CACHE_SYNC_DETAILS_TOOLTIP_OK
                   }
                 >
                   <button
@@ -2700,7 +2747,7 @@ export function SearchPage() {
                     disabled={cacheDetailsBusy || listPagingBusy || tooManyResultsForCache}
                     aria-busy={cacheDetailsBusy}
                     aria-label={
-                      cacheDetailsBusy ? "Saving vacancy details to your account" : undefined
+                      cacheDetailsBusy ? "Syncing vacancy details to your account" : undefined
                     }
                     onClick={() => {
                       if (tooManyResultsForCache) return;
@@ -2712,10 +2759,10 @@ export function SearchPage() {
                     {cacheDetailsBusy ? (
                       <>
                         <span className="results-toolbar__cache-btn-spinner" aria-hidden />
-                        <span>Saving…</span>
+                        <span>Syncing…</span>
                       </>
                     ) : (
-                      "Load full details"
+                      "Sync details"
                     )}
                   </button>
                 </div>
@@ -2739,6 +2786,7 @@ export function SearchPage() {
           </p>
         )}
         {(() => {
+          if (cacheDetailsBusy) return null;
           const errOpen = Boolean(cacheDetailsError && !isCacheDetailsConfirmOpen);
           const msg = cacheDetailsNotice;
           if (!errOpen && !msg) return null;

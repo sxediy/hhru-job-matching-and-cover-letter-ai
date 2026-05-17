@@ -4,6 +4,7 @@ import {
   loadUserHiddenVacancyIds,
   postgrestQuotedInList,
 } from "@/lib/me/userHiddenVacancyIds";
+import { deleteUserVacancyDetails } from "@/lib/me/userVacancyDetails";
 import { fetchVacancyDetailsPayloadWithRetries } from "@/lib/hh/shardVacancyView";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
@@ -27,9 +28,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function parseVacancyIds(body: unknown): string[] | null {
-  if (body == null || typeof body !== "object" || Array.isArray(body)) return null;
-  const raw = (body as { vacancyIds?: unknown }).vacancyIds;
+function parseNumericVacancyIdList(
+  raw: unknown,
+  maxLen: number,
+): string[] | null {
   if (!Array.isArray(raw)) return null;
   const out: string[] = [];
   const seen = new Set<string>();
@@ -39,9 +41,29 @@ function parseVacancyIds(body: unknown): string[] | null {
     if (!/^\d+$/.test(id) || seen.has(id)) continue;
     seen.add(id);
     out.push(id);
-    if (out.length > MAX_IDS) return null;
+    if (out.length > maxLen) return null;
   }
   return out.length > 0 ? out : null;
+}
+
+function parseVacancyIds(body: unknown): string[] | null {
+  if (body == null || typeof body !== "object" || Array.isArray(body)) return null;
+  return parseNumericVacancyIdList((body as { vacancyIds?: unknown }).vacancyIds, MAX_IDS);
+}
+
+async function loadExistingVacancyDetailIds(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  vacancyIds: string[],
+): Promise<Set<string>> {
+  if (vacancyIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("user_vacancy_details")
+    .select("vacancy_id")
+    .eq("user_id", userId)
+    .in("vacancy_id", vacancyIds);
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => String(row.vacancy_id)));
 }
 
 /** POST — fetch each vacancy from hh.ru (Lux vacancyView) and upsert JSON into user_vacancy_details. */
@@ -63,6 +85,18 @@ export async function POST(req: Request) {
 
   const replaceSnapshotRaw = (body as { replaceSnapshot?: unknown }).replaceSnapshot;
   const replaceSnapshot = replaceSnapshotRaw !== false;
+
+  const snapshotVacancyIdsRaw = (body as { snapshotVacancyIds?: unknown }).snapshotVacancyIds;
+  const snapshotVacancyIds =
+    snapshotVacancyIdsRaw === undefined
+      ? null
+      : parseNumericVacancyIdList(
+          snapshotVacancyIdsRaw,
+          HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS,
+        );
+  if (snapshotVacancyIdsRaw !== undefined && !snapshotVacancyIds) {
+    return NextResponse.json({ error: "Invalid snapshotVacancyIds" }, { status: 400 });
+  }
 
   const searchFoundRaw = (body as { searchFound?: unknown }).searchFound;
   if (searchFoundRaw !== undefined) {
@@ -103,16 +137,25 @@ export async function POST(req: Request) {
   const ids = requestedIds.filter((id) => !hiddenIds.has(id));
   const skippedHidden = requestedIds.length - ids.length;
 
-  /** First chunk only: replace snapshot — drop cached rows before loading this save session. */
+  let removed = 0;
+  try {
+    removed += await deleteUserVacancyDetails(supabase, user.id, hiddenIds);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to purge hidden vacancy details";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  /** First chunk only: drop cached rows outside this search snapshot. */
   if (replaceSnapshot) {
-    let clearQuery = supabase.from("user_vacancy_details").delete().eq("user_id", user.id);
-    if (hiddenIds.size > 0) {
-      clearQuery = clearQuery.not("vacancy_id", "in", postgrestQuotedInList(hiddenIds));
+    let clearQuery = supabase.from("user_vacancy_details").delete({ count: "exact" }).eq("user_id", user.id);
+    if (snapshotVacancyIds && snapshotVacancyIds.length > 0) {
+      clearQuery = clearQuery.not("vacancy_id", "in", postgrestQuotedInList(snapshotVacancyIds));
     }
-    const { error: clearError } = await clearQuery;
+    const { error: clearError, count: clearCount } = await clearQuery;
     if (clearError) {
       return NextResponse.json({ error: clearError.message }, { status: 500 });
     }
+    removed += clearCount ?? 0;
   }
 
   if (ids.length === 0) {
@@ -120,19 +163,33 @@ export async function POST(req: Request) {
       ok: true,
       requested: requestedIds.length,
       saved: 0,
+      removed,
       skippedHidden,
+      skippedCached: 0,
+      skippedCachedIds: [],
       savedIds: [],
       failed: [],
       failedByStatus: {},
     });
   }
 
+  let existingIds: Set<string>;
+  try {
+    existingIds = await loadExistingVacancyDetailIds(supabase, user.id, ids);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to load cached vacancy details";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  const skippedCachedIds = ids.filter((id) => existingIds.has(id));
+  const idsToFetch = ids.filter((id) => !existingIds.has(id));
+
   const saved: string[] = [];
   const failed: { id: string; status: number; detail?: string }[] = [];
   const now = new Date().toISOString();
 
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i]!;
+  for (let i = 0; i < idsToFetch.length; i++) {
+    const id = idsToFetch[i]!;
     if (i > 0) await sleep(BETWEEN_MS);
 
     const fetched = await fetchVacancyDetailsPayloadWithRetries(id);
@@ -170,7 +227,10 @@ export async function POST(req: Request) {
       ok: true,
       requested: requestedIds.length,
       saved: saved.length,
+      removed,
       skippedHidden,
+      skippedCached: skippedCachedIds.length,
+      skippedCachedIds,
       savedIds: saved,
       failed,
       failedByStatus,
