@@ -2092,10 +2092,133 @@ button.secondary:disabled {
   background: color-mix(in srgb, var(--panel) 92%, var(--bg));
 }
 
+.vacancy-card--session-hidden {
+  --vacancy-hidden-ink: var(--muted);
+  position: relative;
+  border-color: color-mix(in srgb, var(--vacancy-hidden-ink) 22%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, var(--bg));
+}
+
+.vacancy-card--session-hidden::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+  pointer-events: none;
+}
+
+.vacancy-card--session-hidden > * {
+  position: relative;
+  z-index: 1;
+}
+
+.vacancy-card--session-hidden .vacancy-card__title {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 68%, transparent);
+  font-weight: 500;
+}
+
+.vacancy-card--session-hidden .vacancy-card__meta {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 48%, transparent);
+}
+
+.vacancy-card--session-hidden .vacancy-card__preview {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 36%, transparent);
+}
+
+.vacancy-card--session-hidden .vacancy-card__open {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 44%, transparent);
+  text-decoration: none;
+}
+
+.vacancy-card--session-hidden .vacancy-card__open:hover {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 56%, transparent);
+  text-decoration: underline;
+}
+
+.vacancy-card--session-hidden .vacancy-card__session-toggle--restore {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 82%, transparent);
+}
+
+.vacancy-card--session-hidden .vacancy-card__session-toggle--restore:hover {
+  color: color-mix(in srgb, var(--vacancy-hidden-ink) 95%, transparent);
+  background: color-mix(in srgb, var(--vacancy-hidden-ink) 12%, transparent);
+}
+
+.vacancy-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
 .vacancy-card__title {
-  margin: 0 0 0.35rem;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 1rem;
   font-weight: 600;
+}
+
+.vacancy-card__session-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.1rem 0.35rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vacancy-card__session-toggle:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.vacancy-card__session-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.vacancy-card__session-toggle--restore {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  white-space: nowrap;
+}
+
+.vacancy-list-session-hidden {
+  margin-top: 1.25rem;
+}
+
+.vacancy-list-session-hidden__rule {
+  margin: 0 0 0.85rem;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.vacancy-list-session-hidden__heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.vacancy-list--session-hidden .vacancy-card__preview {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .vacancy-card__meta {

@@ -632,6 +632,10 @@ export function SearchPage() {
   const [pages, setPages] = useState<number | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  /** Hidden vacancy ids (persisted in user_hidden_vacancies when Supabase is configured). */
+  const [hiddenVacancyIds, setHiddenVacancyIds] = useState<Set<string>>(() => new Set());
+  /** Card snapshots for hidden ids (e.g. after paging away from the listing page). */
+  const [hiddenVacancyCards, setHiddenVacancyCards] = useState<Map<string, VacancyItem>>(() => new Map());
 
   const vacancyTitleLocalExcludesKey = useMemo(
     () => vacancyTitleLocalExcludes.join("\u0001"),
@@ -672,6 +676,113 @@ export function SearchPage() {
     titleFilterClientPage,
     found,
   ]);
+
+  const activeVacancyItems = useMemo(
+    () => items.filter((it) => !hiddenVacancyIds.has(it.id)),
+    [items, hiddenVacancyIds],
+  );
+
+  const hiddenVacancySectionItems = useMemo(() => {
+    const out: VacancyItem[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      if (!hiddenVacancyIds.has(it.id)) continue;
+      out.push(it);
+      seen.add(it.id);
+    }
+    for (const id of hiddenVacancyIds) {
+      if (seen.has(id)) continue;
+      const snap = hiddenVacancyCards.get(id);
+      if (snap) out.push(snap);
+    }
+    return out;
+  }, [items, hiddenVacancyIds, hiddenVacancyCards]);
+
+  const hideVacancy = useCallback(async (item: VacancyItem) => {
+    setHiddenVacancyIds((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    setHiddenVacancyCards((prev) => {
+      const next = new Map(prev);
+      next.set(item.id, item);
+      return next;
+    });
+
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const res = await fetch("/api/me/hidden-vacancies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vacancyId: item.id }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? `Hide failed (${res.status})`);
+      }
+    } catch (e) {
+      setHiddenVacancyIds((prev) => {
+        if (!prev.has(item.id)) return prev;
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      setHiddenVacancyCards((prev) => {
+        if (!prev.has(item.id)) return prev;
+        const next = new Map(prev);
+        next.delete(item.id);
+        return next;
+      });
+      console.error("Failed to hide vacancy:", e);
+    }
+  }, []);
+
+  const restoreVacancy = useCallback(async (id: string) => {
+    let snapshot: VacancyItem | undefined;
+    setHiddenVacancyCards((prev) => {
+      snapshot = prev.get(id);
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    setHiddenVacancyIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const res = await fetch(
+        `/api/me/hidden-vacancies?vacancyId=${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? `Restore failed (${res.status})`);
+      }
+    } catch (e) {
+      setHiddenVacancyIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      if (snapshot) {
+        setHiddenVacancyCards((prev) => {
+          const next = new Map(prev);
+          next.set(id, snapshot as VacancyItem);
+          return next;
+        });
+      }
+      console.error("Failed to restore vacancy:", e);
+    }
+  }, []);
 
   /** Light mode only: filtered vs raw on current HH page (second toolbar line). */
   const titleFilterLightModeFraction = useMemo(() => {
@@ -1446,6 +1557,25 @@ export function SearchPage() {
     runSearch,
     urlInitialized,
   ]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch("/api/me/hidden-vacancies", { signal: ac.signal });
+        if (!res.ok || ac.signal.aborted) return;
+        const json = (await res.json()) as { vacancyIds?: unknown };
+        const raw = json.vacancyIds;
+        if (!Array.isArray(raw) || ac.signal.aborted) return;
+        const ids = raw.filter((x): x is string => typeof x === "string" && /^\d+$/.test(x));
+        setHiddenVacancyIds(new Set(ids));
+      } catch {
+        /* aborted or network */
+      }
+    })();
+    return () => ac.abort();
+  }, []);
 
   useEffect(() => {
     if (!initializedFromUrlRef.current) return;
@@ -2545,6 +2675,11 @@ export function SearchPage() {
                     : String(titleFilterLightModeFraction.num)}
                 </p>
               ) : null}
+              {hiddenVacancySectionItems.length > 0 && found != null ? (
+                <p className="muted small results-toolbar__count-sub">
+                  {activeVacancyItems.length} in review · {hiddenVacancySectionItems.length} hidden
+                </p>
+              ) : null}
             </div>
             <div className="results-toolbar__actions">
               {isSupabaseConfigured() && items.length > 0 ? (
@@ -2631,12 +2766,31 @@ export function SearchPage() {
           </p>
         ) : null}
         <ul className="vacancy-list">
-          {items.map((it) => (
+          {activeVacancyItems.map((it) => (
             <li key={it.id}>
-              <VacancyCard item={it} />
+              <VacancyCard item={it} onHide={() => void hideVacancy(it)} />
             </li>
           ))}
         </ul>
+        {hiddenVacancySectionItems.length > 0 ? (
+          <div className="vacancy-list-session-hidden" aria-labelledby="vacancy-hidden-heading">
+            <hr className="vacancy-list-session-hidden__rule" />
+            <h3 id="vacancy-hidden-heading" className="vacancy-list-session-hidden__heading">
+              Hidden
+            </h3>
+            <ul className="vacancy-list vacancy-list--session-hidden">
+              {hiddenVacancySectionItems.map((it) => (
+                <li key={it.id}>
+                  <VacancyCard
+                    item={it}
+                    sessionHidden
+                    onUnhide={() => void restoreVacancy(it.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {showResultsPagination ? (
           <ResultsPaginationNumeric
             searching={listPagingBusy}

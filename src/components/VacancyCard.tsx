@@ -19,7 +19,16 @@ export type VacancyItem = {
   snippet?: { requirement?: string; responsibility?: string };
 };
 
-export function VacancyCard({ item }: { item: VacancyItem }) {
+type VacancyCardProps = {
+  item: VacancyItem;
+  /** Move to the Hidden section and persist vacancy id when Supabase is configured. */
+  onHide?: () => void;
+  /** Restore from the hidden section to the main list. */
+  onUnhide?: () => void;
+  sessionHidden?: boolean;
+};
+
+export function VacancyCard({ item, onHide, onUnhide, sessionHidden }: VacancyCardProps) {
   const salary = item.salary;
   let salaryLine = "";
   if (salary && (salary.from != null || salary.to != null)) {
@@ -34,8 +43,32 @@ export function VacancyCard({ item }: { item: VacancyItem }) {
   const preview = oneLine([req, resp].filter(Boolean).join(" · "));
 
   return (
-    <article className="vacancy-card">
-      <h2 className="vacancy-card__title">{item.name}</h2>
+    <article className={`vacancy-card${sessionHidden ? " vacancy-card--session-hidden" : ""}`}>
+      <header className="vacancy-card__header">
+        <h2 className="vacancy-card__title">{item.name}</h2>
+        {onHide ? (
+          <button
+            type="button"
+            className="vacancy-card__session-toggle"
+            aria-label={`Hide “${item.name}”`}
+            title="Hide"
+            onClick={onHide}
+          >
+            ×
+          </button>
+        ) : null}
+        {onUnhide ? (
+          <button
+            type="button"
+            className="vacancy-card__session-toggle vacancy-card__session-toggle--restore"
+            aria-label={`Restore “${item.name}” to list`}
+            title="Restore to main list"
+            onClick={onUnhide}
+          >
+            Restore
+          </button>
+        ) : null}
+      </header>
       <div className="vacancy-card__meta">
         {item.employer?.name ? <span>{item.employer.name}</span> : null}
         {item.area?.name ? <span>{item.area.name}</span> : null}
