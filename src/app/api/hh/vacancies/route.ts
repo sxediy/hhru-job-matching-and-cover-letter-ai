@@ -1,6 +1,11 @@
+import {
+  adaptShardVacancySearchResponse,
+  shardVacancySearchPath,
+  type ShardSearchJson,
+} from "@/lib/hh/shardVacancySearch";
 import { buildVacancySearchParams } from "@/lib/hh/vacancyQuery";
 import type { VacancySearchPayload } from "@/lib/hh/vacancySearchTypes";
-import { hhFetch } from "@/lib/hh/serverFetch";
+import { hhShardFetch } from "@/lib/hh/serverFetch";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -22,11 +27,30 @@ export async function POST(req: Request) {
   }
 
   const params = buildVacancySearchParams(payload);
-  const qs = params.toString();
-  const res = await hhFetch(`/vacancies?${qs}`, { cache: "no-store" });
-  const body = await res.text();
-  return new NextResponse(body, {
-    status: res.status,
-    headers: { "Content-Type": "application/json" },
-  });
+  const page = Math.max(0, payload.page ?? 0);
+  const perPage = Math.min(100, Math.max(1, payload.perPage ?? 50));
+
+  const res = await hhShardFetch(shardVacancySearchPath(params), { cache: "no-store" });
+  if (!res.ok) {
+    const errText = await res.text();
+    let errBody: { error?: string } = { error: `hh.ru shard search failed (${res.status})` };
+    try {
+      const parsed = JSON.parse(errText) as { error?: string; message?: string };
+      if (typeof parsed.error === "string") errBody = { error: parsed.error };
+      else if (typeof parsed.message === "string") errBody = { error: parsed.message };
+    } catch {
+      if (errText.trim()) errBody = { error: errText.slice(0, 500) };
+    }
+    return NextResponse.json(errBody, { status: res.status });
+  }
+
+  let shardJson: ShardSearchJson;
+  try {
+    shardJson = (await res.json()) as ShardSearchJson;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON from hh.ru shard" }, { status: 502 });
+  }
+
+  const list = adaptShardVacancySearchResponse(shardJson, page, perPage);
+  return NextResponse.json(list);
 }

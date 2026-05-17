@@ -525,7 +525,7 @@ function updatePresetChipTooltipNudge(chip: HTMLElement) {
 const VAULT_SLIDER_THRESHOLD = 94;
 
 /**
- * Vacancy list page size: same for hh.ru API (`/vacancies`) and client-side title-filter pages,
+ * Vacancy list page size: same for hh.ru shard search and client-side title-filter pages,
  * so HH `pages` matches how many items we slice per «page» after filtering.
  * (hh.ru allows up to 100 — see `vacancyQuery`; we keep 50 for consistent UX.)
  */

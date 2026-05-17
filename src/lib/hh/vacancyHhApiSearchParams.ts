@@ -1,11 +1,15 @@
 import { DEFAULT_VACANCY_SEARCH_FIELDS } from "./vacancySearchDefaults";
 import type { VacancySearchFilters } from "./vacancySearchTypes";
 
-/** Append vacancy **filter** fields to `URLSearchParams` for hh.ru Open API `GET /vacancies`. */
-export function appendVacancySearchFiltersToHhApiParams(
+export type VacancySearchCurrencyParam = "currency" | "currency_code";
+
+/** Append vacancy filter fields to `URLSearchParams` (hh.ru web / shard / Open API). */
+export function appendVacancySearchFiltersToParams(
   target: URLSearchParams,
   filters: VacancySearchFilters,
+  options?: { currencyParam?: VacancySearchCurrencyParam },
 ): void {
+  const currencyParam = options?.currencyParam ?? "currency";
   const text = filters.text?.trim();
   if (text) target.set("text", text);
 
@@ -42,6 +46,14 @@ export function appendVacancySearchFiltersToHhApiParams(
 
   if (filters.salary != null && filters.currency_code) {
     target.set("salary", String(Math.trunc(filters.salary)));
-    target.set("currency", filters.currency_code);
+    target.set(currencyParam, filters.currency_code);
   }
+}
+
+/** Append vacancy **filter** fields to `URLSearchParams` for hh.ru Open API `GET /vacancies`. */
+export function appendVacancySearchFiltersToHhApiParams(
+  target: URLSearchParams,
+  filters: VacancySearchFilters,
+): void {
+  appendVacancySearchFiltersToParams(target, filters, { currencyParam: "currency" });
 }
