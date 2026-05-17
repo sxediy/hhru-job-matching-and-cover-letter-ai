@@ -28,7 +28,7 @@ export async function hhFetch(path: string, init?: RequestInit): Promise<Respons
   return hhRequest(HH_API_BASE, path, init);
 }
 
-/** Site shards (hh.ru): vacancy search — unofficial, no OAuth. */
+/** Site (hh.ru): shard search, vacancy page HTML — unofficial, no OAuth. */
 export async function hhShardFetch(path: string, init?: RequestInit): Promise<Response> {
   return hhRequest(HH_SITE_BASE, path, init);
 }

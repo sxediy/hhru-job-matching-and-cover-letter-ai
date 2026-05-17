@@ -532,7 +532,7 @@ const VAULT_SLIDER_THRESHOLD = 94;
 const VACANCY_LIST_PAGE_SIZE = 50;
 
 const CACHE_LOAD_DETAILS_TOOLTIP_OK =
-  "Stores full vacancy payloads from hh.ru for the listings on this page.";
+  "Stores full vacancy data from hh.ru vacancy pages for visible listings (hidden are skipped).";
 const CACHE_LOAD_DETAILS_TOOLTIP_BLOCKED = `Too many results for this action. Need no more than ${HH_VACANCY_SEARCH_MAX_FOUND_FOR_HEAVY_ACTIONS}.`;
 
 function mergeVacancyItemsDedupe(prev: VacancyItem[], more: VacancyItem[]): VacancyItem[] {
@@ -697,6 +697,18 @@ export function SearchPage() {
     }
     return out;
   }, [items, hiddenVacancyIds, hiddenVacancyCards]);
+
+  /** Listings eligible for «Load full details» (same scope as HH bulk/page list, minus hidden). */
+  const vacanciesForDetailsSave = useMemo(() => {
+    const list =
+      vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
+    return list.filter((it) => !hiddenVacancyIds.has(it.id));
+  }, [
+    vacancyTitleLocalExcludes.length,
+    titleFilteredFullList,
+    lastPageApiItems,
+    hiddenVacancyIds,
+  ]);
 
   const hideVacancy = useCallback(async (item: VacancyItem) => {
     setHiddenVacancyIds((prev) => {
@@ -1729,9 +1741,9 @@ export function SearchPage() {
 
   const confirmCacheVacancyDetails = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
-    const listForSave =
-      vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
-    const vacancyIds = listForSave.map((it) => it.id).filter((id) => /^\d+$/.test(id));
+    const vacancyIds = vacanciesForDetailsSave
+      .map((it) => it.id)
+      .filter((id) => /^\d+$/.test(id));
     if (vacancyIds.length === 0) {
       setCacheDetailsError("No vacancies on this page to save.");
       return;
@@ -1849,13 +1861,7 @@ export function SearchPage() {
     } finally {
       setCacheDetailsBusy(false);
     }
-  }, [
-    vacancyTitleLocalExcludes.length,
-    titleFilteredFullList,
-    lastPageApiItems,
-    found,
-    showCacheDetailsNotice,
-  ]);
+  }, [vacanciesForDetailsSave, found, showCacheDetailsNotice]);
 
   const restorePreferences = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
@@ -2019,8 +2025,6 @@ export function SearchPage() {
   }
 
   const listPagingBusy = searching || titleFilterBulkLoading;
-  const vacanciesForDetailsModal =
-    vacancyTitleLocalExcludes.length > 0 ? titleFilteredFullList : lastPageApiItems;
 
   const showHhResultsPagination =
     found != null &&
@@ -2586,9 +2590,8 @@ export function SearchPage() {
               Save full vacancy descriptions to your account for further analysis
             </h2>
             <p className="muted small modal__lede">
-              We will fetch each vacancy on this page from HeadHunter (one API call per listing) and
-              store the full JSON on your account. Drag the dial all the way to the right, then
-              confirm.
+              We will load each vacancy page from hh.ru (one request per listing) and store the full
+              description on your account. Drag the dial all the way to the right, then confirm.
             </p>
             <div className="save-prefs-vault" aria-hidden>
               <div
@@ -2643,7 +2646,7 @@ export function SearchPage() {
                 disabled={cacheDetailsUnlockSlider < VAULT_SLIDER_THRESHOLD}
                 onClick={() => void confirmCacheVacancyDetails()}
               >
-                {`Fetch and save details for ${vacanciesForDetailsModal.length} position${vacanciesForDetailsModal.length === 1 ? "" : "s"}`}
+                {`Fetch and save details for ${vacanciesForDetailsSave.length} position${vacanciesForDetailsSave.length === 1 ? "" : "s"}`}
               </button>
             </div>
           </div>
